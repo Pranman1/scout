@@ -59,7 +59,25 @@ class ScanResampler(Node):
                 - ``ranges = resampled.tolist()``, ``intensities = []``.
             6. Publish.
         """
-        self.pub.publish(msg)
+        if len(msg.ranges) == 0:
+            return
+
+        in_axis = np.linspace(msg.angle_min, msg.angle_max, len(msg.ranges))
+        out_axis = np.linspace(msg.angle_min, msg.angle_max, self.target_count)
+        resampled = np.interp(out_axis, in_axis, msg.ranges)
+
+        out = LaserScan()
+        out.header = msg.header
+        out.angle_min = msg.angle_min
+        out.angle_max = msg.angle_max
+        out.angle_increment = (msg.angle_max - msg.angle_min) / (self.target_count - 1)
+        out.time_increment = msg.time_increment
+        out.scan_time = msg.scan_time
+        out.range_min = msg.range_min
+        out.range_max = msg.range_max
+        out.ranges = resampled.tolist()
+        out.intensities = []
+        self.pub.publish(out)
 
 
 def main(args=None):
