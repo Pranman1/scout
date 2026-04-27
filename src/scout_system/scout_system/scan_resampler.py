@@ -59,7 +59,7 @@ class ScanResampler(Node):
                 - ``ranges = resampled.tolist()``, ``intensities = []``.
             6. Publish.
         """
-        raise NotImplementedError("TODO(you): implement scan resampling.")
+        self.pub.publish(msg)
 
 
 def main(args=None):

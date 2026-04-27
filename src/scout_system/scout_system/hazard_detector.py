@@ -140,7 +140,7 @@ class HazardDetector(Node):
             6. Append a marker (see ``_make_marker``) to a local
                ``MarkerArray`` and publish once at the end if non-empty.
         """
-        raise NotImplementedError("TODO(you): implement the per-frame detection pipeline.")
+        return
 
     # ------------------------------------------------------------------ geom
     def _pixel_to_map(

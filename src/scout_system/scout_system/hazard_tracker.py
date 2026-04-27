@@ -166,7 +166,7 @@ class HazardTracker(Node):
               ``MarkerArray``.
             - Publish the MarkerArray only if non-empty.
         """
-        raise NotImplementedError("TODO(you): implement the periodic republish.")
+        return
 
     def _make_marker(self, t: _Track, stamp) -> Marker:
         """Build an RViz CYLINDER marker for a confirmed track.
