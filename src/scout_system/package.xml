@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>scout_system</name>
+  <version>0.1.0</version>
+  <description>
+    Scout: a TurtleBot3 hazard-detection / mission-orchestration stack for the
+    EECS106A final project. Pairs with a UR7 arm (separate package) that hands
+    physical response packages to the robot after it localizes each hazard.
+  </description>
+  <maintainer email="pranav@todo.todo">pranav</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>nav2_simple_commander</depend>
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+  <depend>scout_msgs</depend>
+
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>turtlebot3_navigation2</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>explore_lite</exec_depend>
+  <exec_depend>gazebo_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

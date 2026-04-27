@@ -1,0 +1,8 @@
+# Fallback waypoints for mission_manager when no hazards have been
+# recorded yet. Absolute X/Y in the map frame. Lines starting with '#'
+# are comments. Used only if /hazards/confirmed is empty.
+#
+# X     Y
+ 1.5    1.0
+ 0.0    2.5
+-1.5    0.5

@@ -1,0 +1,322 @@
+"""Scout system launcher.
+
+Single entry point for every demo mode, same pattern as the grazen
+system.launch.py but reorganized for the hazard-detection flow.
+
+Arguments
+---------
+mode       : 'sim' | 'real'    (default 'sim')
+task       : 'scout' | 'map' | 'nav' | 'mission'
+             - scout   : map + detect hazards, then run the mission (full demo)
+             - map     : mapping only (auto_map toggles explore_lite vs WASD)
+             - nav     : load a saved map, run Nav2 + AMCL (no mission manager)
+             - mission : load saved map + saved hazards + run mission_manager
+auto_map   : 'true' | 'false'  (only used in task=map; picks explore_lite vs manual)
+map_name   : string            (filename stem under scout_system/maps/; auto if empty)
+world      : world filename    (default 'scout_arena.world')
+
+Notes on mode=real
+------------------
+The scout_ws is intended to overlay on an underlay workspace that
+provides the stock turtlebot3 bringup (typically ~/turtle_test). Source
+both before launching::
+
+    source ~/turtle_test/install/setup.bash
+    source ~/scout_ws/install/setup.bash
+
+In real mode this launch file does NOT bring up the robot base -- run
+``ros2 launch turtlebot3_bringup robot.launch.py`` on the Pi yourself.
+Only nav-stack / perception / mission pieces launch here.
+"""
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    SetEnvironmentVariable,
+)
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import (
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
+from launch_ros.actions import Node
+
+
+def _cond(expr: str):
+    return IfCondition(PythonExpression([expr]))
+
+
+def generate_launch_description():
+    pkg_scout = get_package_share_directory('scout_system')
+    pkg_tb3_nav = get_package_share_directory('turtlebot3_navigation2')
+    pkg_nav2_bringup = get_package_share_directory('nav2_bringup')
+
+    # --- args ---------------------------------------------------------
+    mode_arg = DeclareLaunchArgument('mode', default_value='sim')
+    task_arg = DeclareLaunchArgument('task', default_value='scout')
+    auto_map_arg = DeclareLaunchArgument('auto_map', default_value='true')
+    world_arg = DeclareLaunchArgument('world', default_value='scout_arena.world')
+    map_name_arg = DeclareLaunchArgument('map_name', default_value='')
+    x_pose_arg = DeclareLaunchArgument('x_pose', default_value='-2.6')
+    y_pose_arg = DeclareLaunchArgument('y_pose', default_value='-3.0')
+
+    mode = LaunchConfiguration('mode')
+    task = LaunchConfiguration('task')
+    auto_map = LaunchConfiguration('auto_map')
+    world = LaunchConfiguration('world')
+    map_name_input = LaunchConfiguration('map_name')
+
+    # auto map name: provided > world_stem > 'real_map'
+    final_map_name = PythonExpression([
+        "'", map_name_input, "' if '", map_name_input, "' != '' else ",
+        "('sim_' + '", world, "'.replace('.world','') if '", mode, "' == 'sim' "
+        "else 'real_map')"
+    ])
+    map_base_path = PathJoinSubstitution([pkg_scout, 'maps', final_map_name])
+    hazards_file = PathJoinSubstitution([pkg_scout, 'maps',
+                                         PythonExpression(
+                                             ["'", final_map_name, "' + '_hazards.json'"]
+                                         )])
+
+    nav_params = PathJoinSubstitution([pkg_scout, 'config', 'scout_params.yaml'])
+    slam_params = PathJoinSubstitution([pkg_scout, 'config', 'slam_params.yaml'])
+    explore_params = PathJoinSubstitution([pkg_scout, 'config', 'explore_params.yaml'])
+    hazard_params = PathJoinSubstitution([pkg_scout, 'config', 'hazard_params.yaml'])
+    waypoints_file = PathJoinSubstitution([pkg_scout, 'config', 'waypoints.txt'])
+
+    rviz_config = os.path.join(pkg_tb3_nav, 'rviz', 'tb3_navigation2.rviz')
+
+    # Make sure our Gazebo models (cubes, dock, UR7 placeholder) resolve.
+    existing_model_path = os.environ.get('GAZEBO_MODEL_PATH', '')
+    our_models = os.path.join(pkg_scout, 'models')
+    combined_model_path = (
+        our_models if not existing_model_path else f'{our_models}:{existing_model_path}'
+    )
+    set_model_path = SetEnvironmentVariable(
+        name='GAZEBO_MODEL_PATH', value=combined_model_path
+    )
+
+    # Default to burger_cam in sim unless the user already set something else.
+    set_tb3_model = SetEnvironmentVariable(
+        name='TURTLEBOT3_MODEL',
+        value=os.environ.get('TURTLEBOT3_MODEL', 'burger_cam'),
+    )
+
+    # ---------- condition expressions (consumed by PythonExpression) ----------
+    # Each of these is a list of substitutions that PythonExpression concatenates
+    # into a single Python boolean expression. Combined via simple list addition
+    # to build compound conditions (see _cond() calls below).
+    sim_ex = ["'", mode, "' == 'sim'"]
+    real_ex = ["'", mode, "' == 'real'"]
+    map_task_ex = ["'", task, "' == 'map'"]
+    mission_task_ex = ["'", task, "' == 'mission'"]
+    scout_task_ex = ["'", task, "' == 'scout'"]
+    auto_map_ex = ["'", auto_map, "' == 'true'"]
+
+    # Does this task need a live SLAM session? (scout + map)
+    needs_slam_ex = ["'", task, "' in ('map', 'scout')"]
+    # Does this task load a saved map into Nav2? (nav + mission)
+    needs_saved_map_ex = ["'", task, "' in ('nav', 'mission')"]
+    # Does this task run perception? (scout - we also allow it in map for dev)
+    needs_perception_ex = ["'", task, "' in ('scout', 'map')"]
+    # Does this task run the mission_manager? (scout + mission + nav, but nav
+    # skips if no hazards/waypoints; we still launch it so the /mission_status
+    # topic is always available for the arm side to subscribe).
+    needs_mission_ex = ["'", task, "' in ('scout', 'nav', 'mission')"]
+
+    # ============================================================ 1. SIM LAYER
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(pkg_scout, 'launch', 'gazebo.launch.py')),
+        launch_arguments={'world': world}.items(),
+        condition=_cond(sim_ex),
+    )
+
+    spawn_robot = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(pkg_scout, 'launch', 'spawn_robot.launch.py')),
+        launch_arguments={
+            'x_pose': LaunchConfiguration('x_pose'),
+            'y_pose': LaunchConfiguration('y_pose'),
+            'use_sim_time': 'true',
+        }.items(),
+        condition=_cond(sim_ex),
+    )
+
+    # ============================================================ 2. RVIZ
+    rviz = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', rviz_config],
+        output='screen',
+        condition=_cond(needs_slam_ex),  # loaded-map tasks already launch their own
+    )
+
+    # ============================================================ 3. SLAM
+    scan_resampler = Node(
+        package='scout_system',
+        executable='scan_resampler',
+        name='scan_resampler',
+        output='screen',
+        condition=_cond(real_ex + [' and '] + needs_slam_ex),
+    )
+
+    slam_sim = Node(
+        package='slam_toolbox',
+        executable='async_slam_toolbox_node',
+        name='slam_toolbox',
+        output='screen',
+        parameters=[slam_params, {'use_sim_time': True}],
+        condition=_cond(sim_ex + [' and '] + needs_slam_ex),
+    )
+
+    slam_real = Node(
+        package='slam_toolbox',
+        executable='async_slam_toolbox_node',
+        name='slam_toolbox',
+        output='screen',
+        parameters=[slam_params, {'use_sim_time': False}],
+        remappings=[('scan', 'scan_filtered')],
+        condition=_cond(real_ex + [' and '] + needs_slam_ex),
+    )
+
+    # Nav2 (mapping config: no AMCL, map comes from SLAM)
+    nav2_mapping = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
+        ),
+        launch_arguments={
+            'use_sim_time': PythonExpression(sim_ex),
+            'params_file': nav_params,
+            'map_subscribe_transient_local': 'true',
+        }.items(),
+        condition=_cond(needs_slam_ex),
+    )
+
+    # ============================================================ 4. EXPLORE + AUTO MAPPER
+    explore_lite = Node(
+        package='explore_lite',
+        executable='explore',
+        name='explore_node',
+        output='screen',
+        parameters=[explore_params,
+                    {'use_sim_time': PythonExpression(sim_ex)}],
+        condition=_cond(needs_slam_ex + [' and ('] + scout_task_ex
+                        + [" or ("] + map_task_ex + [' and '] + auto_map_ex + [')'] + [')']),
+    )
+
+    auto_mapper = Node(
+        package='scout_system',
+        executable='auto_mapper',
+        name='auto_mapper',
+        output='screen',
+        parameters=[{
+            'map_path': PathJoinSubstitution([map_base_path]),
+            'completion_timeout': 10.0,
+            'save_interval': 0.0,
+            # scout flow needs to keep running to transition into mission;
+            # pure 'map' mode can shut down at the end if you want, but we
+            # leave it up so Ctrl-C always belongs to you.
+            'shutdown_on_complete': False,
+        }],
+        condition=_cond(needs_slam_ex + [' and ('] + scout_task_ex
+                        + [" or ("] + map_task_ex + [' and '] + auto_map_ex + [')'] + [')']),
+    )
+
+    manual_mapper = Node(
+        package='scout_system',
+        executable='manual_mapper',
+        name='manual_mapper',
+        output='screen',
+        prefix='xterm -e',
+        parameters=[{'map_path': PathJoinSubstitution([map_base_path])}],
+        condition=_cond(map_task_ex + [' and not '] + auto_map_ex),
+    )
+
+    # ============================================================ 5. PERCEPTION
+    hazard_detector = Node(
+        package='scout_system',
+        executable='hazard_detector',
+        name='hazard_detector',
+        output='screen',
+        parameters=[{
+            'params_file': hazard_params,
+            'image_topic': '/camera/image_raw',
+            'camera_info_topic': '/camera/camera_info',
+            'map_frame': 'map',
+            'cube_size_m': 0.15,
+            'max_range_m': 3.5,
+        }],
+        condition=_cond(needs_perception_ex),
+    )
+
+    hazard_tracker = Node(
+        package='scout_system',
+        executable='hazard_tracker',
+        name='hazard_tracker',
+        output='screen',
+        parameters=[{
+            'merge_radius_m': 0.5,
+            'min_observations': 3,
+            'hazards_file': PathJoinSubstitution([hazards_file]),
+            'republish_period_s': 2.0,
+        }],
+        condition=_cond(needs_perception_ex + [' or '] + mission_task_ex),
+    )
+
+    # ============================================================ 6. NAV (saved-map tasks)
+    nav2_saved = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_tb3_nav, 'launch', 'navigation2.launch.py')
+        ),
+        launch_arguments={
+            'use_sim_time': PythonExpression(sim_ex),
+            'map': [map_base_path, '.yaml'],
+            'params_file': nav_params,
+            'use_rviz': 'True',
+        }.items(),
+        condition=_cond(needs_saved_map_ex),
+    )
+
+    # ============================================================ 7. MISSION + UR7 STUB
+    ur7_stub = Node(
+        package='scout_system',
+        executable='ur7_stub',
+        name='ur7_stub',
+        output='screen',
+        parameters=[{'prep_seconds': 2.0, 'always_accept': True}],
+        condition=_cond(needs_mission_ex),
+    )
+
+    mission_manager = Node(
+        package='scout_system',
+        executable='mission_manager',
+        name='mission_manager',
+        output='screen',
+        parameters=[{
+            'waypoints_file': waypoints_file,
+            'standoff_distance': 0.6,
+            'hazards_wait_timeout': 3.0,
+            'request_package_timeout': 15.0,
+        }],
+        # In 'scout' task mode we launch it immediately; it will internally
+        # wait for Nav2 + localization + the first confirmed hazard.
+        condition=_cond(needs_mission_ex),
+    )
+
+    return LaunchDescription([
+        mode_arg, task_arg, auto_map_arg, world_arg, map_name_arg,
+        x_pose_arg, y_pose_arg,
+        set_model_path, set_tb3_model,
+        gazebo, spawn_robot,
+        rviz,
+        scan_resampler, slam_sim, slam_real, nav2_mapping,
+        explore_lite, auto_mapper, manual_mapper,
+        hazard_detector, hazard_tracker,
+        nav2_saved,
+        ur7_stub, mission_manager,
+    ])

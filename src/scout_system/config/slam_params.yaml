@@ -1,0 +1,40 @@
+slam_toolbox:
+  ros__parameters:
+    use_sim_time: false         # launch file overrides based on mode
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+    mode: mapping
+
+    map_update_interval: 1.0
+    resolution: 0.05
+
+    minimum_travel_distance: 0.2
+    minimum_travel_heading: 0.2
+    minimum_time_interval: 0.5
+
+    # Sim publishes a constant scan count; throttle has no effect there.
+    # On real LDS-02 the scan count varies 250-256, so pair this with
+    # scan_resampler (launched only in mode:=real).
+    throttle_scans: 1
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+
+    max_laser_range: 12.0
+    minimum_range: 0.12
+
+    scan_buffer_size: 30
+    scan_queue_size: 10
+
+    minimum_angle: -3.14159
+    maximum_angle: 3.14159
+
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+    enable_interactive_mode: true

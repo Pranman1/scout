@@ -1,0 +1,44 @@
+# Hazard perception + semantic mapping.
+#
+# Consumed by:
+#   hazard_detector -> detector block
+#   hazard_detector + hazard_tracker -> color_to_category block
+
+detector:
+  # One of "hsv", "yolo". See scout_system/detectors/.
+  backend: hsv
+
+  # Minimum contour area (pixels) to count as a hazard in the HSV backend.
+  # Tune this if your camera resolution changes.
+  min_area_px: 400
+
+  # OpenCV HSV ranges. H is 0-180, S and V are 0-255.
+  # Red needs two ranges because its hue wraps across 0.
+  hsv:
+    red:
+      - {lo: [  0, 120,  70], hi: [ 10, 255, 255]}
+      - {lo: [170, 120,  70], hi: [180, 255, 255]}
+    yellow:
+      - {lo: [ 20, 120, 120], hi: [ 35, 255, 255]}
+    blue:
+      - {lo: [100, 150,  50], hi: [130, 255, 255]}
+
+  # Placeholder for the future YOLO backend (see detectors/yolo.py).
+  yolo:
+    weights: ""
+    conf_threshold: 0.4
+    iou_threshold: 0.45
+    class_to_label: {}
+
+# Color key (from the detector) -> semantic hazard category.
+# The mission_manager uses the category when calling /request_package,
+# so this is where you wire "red cube == fire" etc.
+color_to_category:
+  red: fire
+  yellow: chemical
+  blue: medical
+
+tracker:
+  merge_radius_m: 0.5       # two detections within this radius -> same cube
+  min_observations: 3       # how many hits before a track is "confirmed"
+  republish_period_s: 2.0

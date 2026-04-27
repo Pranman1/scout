@@ -1,0 +1,18 @@
+# Scout -> Arm handshake.
+#
+# The scout calls this when it arrives at a hazard; the arm prepares the
+# appropriate package and reports back. For the EECS106A milestone this is
+# stubbed on the scout side (ur7_client_stub); the real UR7 driver will
+# provide a compatible server later.
+
+# ---- request ----
+int32 hazard_id                # tracker-assigned ID (matches Hazard.id)
+string category                # "fire" | "chemical" | "medical" | ...
+geometry_msgs/Point hazard_position   # map-frame position (for arm sanity check / reach planning)
+
+---
+# ---- response ----
+bool accepted                  # arm is able to prepare this package
+string package_label           # what the arm will hand over (e.g. "mini_extinguisher")
+float32 estimated_prep_seconds # how long the arm thinks it will take
+string message                 # human-readable reason if not accepted

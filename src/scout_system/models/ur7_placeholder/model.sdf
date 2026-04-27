@@ -1,0 +1,36 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <!-- Not functional. Just a 50 x 50 x 80 cm box painted industrial grey
+       so the arm's eventual footprint is obvious in the scene. -->
+  <model name="ur7_placeholder">
+    <static>true</static>
+    <link name="base">
+      <collision name="base_col">
+        <geometry>
+          <box><size>0.5 0.5 0.8</size></box>
+        </geometry>
+      </collision>
+      <visual name="base_vis">
+        <geometry>
+          <box><size>0.5 0.5 0.8</size></box>
+        </geometry>
+        <material>
+          <ambient>0.3 0.3 0.35 1</ambient>
+          <diffuse>0.45 0.45 0.5 1</diffuse>
+          <specular>0.2 0.2 0.2 1</specular>
+        </material>
+      </visual>
+      <visual name="label">
+        <pose>0 0.251 0.25 0 0 0</pose>
+        <geometry>
+          <box><size>0.3 0.001 0.1</size></box>
+        </geometry>
+        <material>
+          <ambient>0.95 0.6 0.05 1</ambient>
+          <diffuse>1.0 0.7 0.1 1</diffuse>
+          <emissive>0.2 0.1 0.0 1</emissive>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
