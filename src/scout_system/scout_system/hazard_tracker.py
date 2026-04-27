@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Hazard tracker / deduplicator.
+"""Hazard tracker / deduplicator (SKELETON).
 
-Merges noisy per-frame detections from ``/hazards/raw`` into a stable
-list of confirmed hazards published with TRANSIENT_LOCAL durability on
-``/hazards/confirmed`` (so the mission_manager can subscribe late and
-still get them).
+Merges noisy per-frame detections coming in on ``/hazards/raw`` into a
+stable list of confirmed hazards, published with TRANSIENT_LOCAL
+durability on ``/hazards/confirmed`` so the mission_manager can
+subscribe late and still receive the full list.
 
-Clustering strategy (simple and good enough for 3 well-separated cubes):
-    * Same color + within ``merge_radius_m`` -> same track, running
-      average of position weighted by observation_count.
-    * Track becomes "confirmed" once ``min_observations`` samples land
-      on it.
-
-When ``/scout/mapping_complete`` flips true, the current confirmed list
-is serialized to ``hazards_file`` so you can replay it later via
-``task:=mission``.
+You decide the clustering strategy. A reasonable first pass:
+    * same color + within ``merge_radius_m`` -> same track
+      (running average of position weighted by observation count),
+    * track becomes "confirmed" once it has ``min_observations``
+      samples on it,
+    * when ``/scout/mapping_complete`` latches true, dump the confirmed
+      set to ``hazards_file`` (JSON) for replay via ``task:=mission``.
 """
 from __future__ import annotations
 
@@ -54,6 +52,11 @@ _COLOR_TO_RGBA = {
 
 @dataclass
 class _Track:
+    """One candidate hazard accumulating observations.
+
+    This is just a data container -- feel free to add / rename fields
+    to match whatever tracking rule you pick.
+    """
     id: int
     color: str
     category: str
@@ -63,7 +66,7 @@ class _Track:
     confidence: float = 0.0
     observations: int = 0
     confirmed: bool = False
-    history: List[float] = field(default_factory=list)   # running confidences
+    history: List[float] = field(default_factory=list)
 
 
 class HazardTracker(Node):
@@ -103,53 +106,35 @@ class HazardTracker(Node):
 
     # ------------------------------------------------------------------ core
     def _on_raw(self, hz: Hazard):
-        track = self._find_track(hz.color, hz.position.x, hz.position.y)
-        if track is None:
-            track = _Track(
-                id=self._next_id,
-                color=hz.color,
-                category=hz.category,
-                x=hz.position.x,
-                y=hz.position.y,
-                z=hz.position.z,
-            )
-            self._next_id += 1
-            self._tracks.append(track)
+        """Associate ``hz`` with an existing track or spawn a new one.
 
-        # Running mean weighted by observation count.
-        n = track.observations
-        track.x = (track.x * n + hz.position.x) / (n + 1)
-        track.y = (track.y * n + hz.position.y) / (n + 1)
-        track.z = (track.z * n + hz.position.z) / (n + 1)
-        track.observations = n + 1
-
-        track.history.append(hz.confidence)
-        if len(track.history) > 20:
-            track.history = track.history[-20:]
-        track.confidence = sum(track.history) / len(track.history)
-
-        if not track.confirmed and track.observations >= self.min_obs:
-            track.confirmed = True
-            self.get_logger().info(
-                f'[confirmed] id={track.id} {track.color}/{track.category} '
-                f'at ({track.x:.2f}, {track.y:.2f}) n={track.observations}'
-            )
-            self._publish_confirmed(track)
+        TODO(you):
+            1. Find the nearest existing track that matches ``hz.color``
+               and is within ``self.merge_radius`` (see ``_find_track``).
+            2. If none, append a new ``_Track`` using ``self._next_id``
+               and bump the counter.
+            3. Update the track: running-mean position weighted by
+               ``observations``, bump observation count, append
+               ``hz.confidence`` to ``history`` (cap length ~20),
+               recompute mean confidence.
+            4. If the track isn't yet confirmed but now has
+               ``observations >= self.min_obs``, mark it confirmed,
+               log it, and call ``self._publish_confirmed(track)``.
+        """
+        raise NotImplementedError("TODO(you): implement detection -> track association.")
 
     def _find_track(self, color: str, x: float, y: float) -> Optional[_Track]:
-        best = None
-        best_d = self.merge_radius
-        for t in self._tracks:
-            if t.color != color:
-                continue
-            d = math.hypot(t.x - x, t.y - y)
-            if d <= best_d:
-                best = t
-                best_d = d
-        return best
+        """Return the nearest same-color track within merge_radius, else None.
+
+        TODO(you): linear scan over ``self._tracks``; keep the closest
+        whose distance <= ``self.merge_radius``. For 3-5 tracks this is
+        trivially fast.
+        """
+        raise NotImplementedError("TODO(you): implement nearest-track lookup.")
 
     # ------------------------------------------------------------------ output
     def _track_to_hazard(self, t: _Track) -> Hazard:
+        """Pack a ``_Track`` into a ``scout_msgs/Hazard``. Pure plumbing."""
         h = Hazard()
         h.header.stamp = self.get_clock().now().to_msg()
         h.header.frame_id = 'map'
@@ -164,69 +149,56 @@ class HazardTracker(Node):
         return h
 
     def _publish_confirmed(self, t: _Track):
-        self.pub_conf.publish(self._track_to_hazard(t))
+        """Publish one confirmed hazard on the latched topic.
+
+        TODO(you): this is a one-liner -- build the Hazard via
+        ``self._track_to_hazard`` and publish on ``self.pub_conf``.
+        """
+        raise NotImplementedError("TODO(you): publish a single confirmed hazard.")
 
     def _republish(self):
-        # Refresh the latched topic + rebuild the RViz markers.
-        markers = MarkerArray()
-        now = self.get_clock().now().to_msg()
-        for t in self._tracks:
-            if not t.confirmed:
-                continue
-            self.pub_conf.publish(self._track_to_hazard(t))
-            markers.markers.append(self._make_marker(t, now))
-        if markers.markers:
-            self.pub_markers.publish(markers)
+        """Timer: rebroadcast every confirmed track + refresh the RViz markers.
+
+        TODO(you):
+            - For each confirmed track: publish via ``self.pub_conf``
+              (keeps the TRANSIENT_LOCAL topic warm for late subscribers)
+              and append a marker from ``_make_marker`` to a
+              ``MarkerArray``.
+            - Publish the MarkerArray only if non-empty.
+        """
+        raise NotImplementedError("TODO(you): implement the periodic republish.")
 
     def _make_marker(self, t: _Track, stamp) -> Marker:
-        m = Marker()
-        m.header.frame_id = 'map'
-        m.header.stamp = stamp
-        m.ns = 'hazards_confirmed'
-        m.id = t.id
-        m.type = Marker.CYLINDER
-        m.action = Marker.ADD
-        m.pose.position.x = t.x
-        m.pose.position.y = t.y
-        m.pose.position.z = t.z + 0.25
-        m.pose.orientation.w = 1.0
-        m.scale.x = m.scale.y = 0.3
-        m.scale.z = 0.5
-        m.color = _COLOR_TO_RGBA.get(t.color, ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0))
-        return m
+        """Build an RViz CYLINDER marker for a confirmed track.
+
+        TODO(you): ns='hazards_confirmed', id=t.id, type=CYLINDER,
+        scale ~0.3 x 0.3 x 0.5, positioned at (t.x, t.y, t.z + 0.25),
+        colour from ``_COLOR_TO_RGBA``.
+        """
+        raise NotImplementedError("TODO(you): implement confirmed-hazard marker.")
 
     # ------------------------------------------------------------------ snapshot
     def _on_mapping_done(self, msg: Bool):
-        if not msg.data or self._snapshot_written:
-            return
-        self._write_snapshot()
+        """Write the JSON snapshot exactly once when mapping completes.
+
+        TODO(you): if ``msg.data`` is True and ``self._snapshot_written``
+        is still False, call ``self._write_snapshot()``.
+        """
+        raise NotImplementedError("TODO(you): trigger the snapshot write.")
 
     def _write_snapshot(self):
-        if not self.hazards_file:
-            return
-        confirmed = [t for t in self._tracks if t.confirmed]
-        payload = {
-            'hazards': [
-                {
-                    'id': t.id,
-                    'color': t.color,
-                    'category': t.category,
-                    'x': t.x,
-                    'y': t.y,
-                    'z': t.z,
-                    'observations': t.observations,
-                    'confidence': t.confidence,
-                }
-                for t in confirmed
-            ],
-        }
-        os.makedirs(os.path.dirname(self.hazards_file), exist_ok=True)
-        with open(self.hazards_file, 'w') as fh:
-            json.dump(payload, fh, indent=2)
-        self._snapshot_written = True
-        self.get_logger().info(
-            f'Snapshot written ({len(confirmed)} hazards) -> {self.hazards_file}'
-        )
+        """Serialize the confirmed track list to ``self.hazards_file`` as JSON.
+
+        TODO(you):
+            - Bail out if ``self.hazards_file`` is empty.
+            - Build a dict like ``{'hazards': [<one entry per confirmed
+              track>]}``, including whatever fields you want to replay
+              later (id/color/category/x/y/z/observations/confidence).
+            - ``os.makedirs(os.path.dirname(path), exist_ok=True)`` then
+              ``json.dump(payload, fh, indent=2)``.
+            - Set ``self._snapshot_written = True`` and log.
+        """
+        raise NotImplementedError("TODO(you): implement the JSON snapshot writer.")
 
 
 def main(args=None):

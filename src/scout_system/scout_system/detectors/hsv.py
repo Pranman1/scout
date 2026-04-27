@@ -1,6 +1,6 @@
-"""HSV color-threshold hazard detector.
+"""HSV color-threshold hazard detector (SKELETON).
 
-Config block expected in hazard_params.yaml::
+Config block expected in ``hazard_params.yaml``::
 
     detector:
       backend: hsv
@@ -14,8 +14,13 @@ Config block expected in hazard_params.yaml::
         blue:
           - {lo: [100, 150,   0], hi: [130, 255, 255]}
 
-Red gets two ranges because its hue wraps around 0 in OpenCV's 0-180 HSV.
-Every color value must be a *list of* {lo, hi} dicts even if length 1.
+Red gets two ranges because its hue wraps around 0 in OpenCV's 0-180
+HSV convention. Every color value is a *list of* ``{lo, hi}`` dicts,
+even if length 1 -- keeps the code path uniform.
+
+You implement ``detect``. The config-parsing part of ``__init__`` is
+already done because it's just dict/numpy plumbing that doesn't teach
+you anything about CV.
 """
 from __future__ import annotations
 
@@ -43,39 +48,29 @@ class HSVDetector(Detector):
             self.ranges[label] = prepared
 
     def detect(self, image_bgr: np.ndarray) -> List[Detection]:
-        if image_bgr is None or image_bgr.size == 0:
-            return []
+        """Segment each configured color and return one Detection per blob.
 
-        hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-        out: List[Detection] = []
+        TODO(you):
+            1. Guard: return [] if ``image_bgr`` is None or empty.
+            2. Convert BGR -> HSV once (``cv2.cvtColor(..., COLOR_BGR2HSV)``).
+            3. For each label in ``self.ranges``:
+                 a. OR together a mask over every (lo, hi) span with
+                    ``cv2.inRange`` -- this handles red's hue wrap.
+                 b. Clean speckle with a small open + close
+                    (``cv2.morphologyEx`` with a 3x3 kernel; ~1 open,
+                    ~2 close iterations is a good starting point).
+                 c. ``cv2.findContours(mask, RETR_EXTERNAL,
+                    CHAIN_APPROX_SIMPLE)``.
+                 d. For each contour: skip if ``cv2.contourArea < self.min_area``.
+                    Otherwise grab ``cv2.boundingRect`` and emit a
+                    ``Detection`` with the box center (cx, cy), width,
+                    height, label, and a confidence in [0, 1].
+                    Simple confidence heuristic: saturate at 4 * min_area,
+                    i.e. ``min(1.0, area / (4.0 * self.min_area))``.
+            4. Return the accumulated list.
 
-        for label, spans in self.ranges.items():
-            mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
-            for lo, hi in spans:
-                mask |= cv2.inRange(hsv, lo, hi)
-
-            # Small open + close to kill speckle without shrinking real cubes.
-            kernel = np.ones((3, 3), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            for cnt in contours:
-                area = cv2.contourArea(cnt)
-                if area < self.min_area:
-                    continue
-                x, y, w, h = cv2.boundingRect(cnt)
-                # Confidence: saturate at 4x min area. Enough signal for now;
-                # a proper detector would use a learned score.
-                conf = float(min(1.0, area / (4.0 * self.min_area)))
-                out.append(
-                    Detection(
-                        cx=x + w / 2.0,
-                        cy=y + h / 2.0,
-                        w=float(w),
-                        h=float(h),
-                        label=label,
-                        confidence=conf,
-                    )
-                )
-        return out
+        Testing tip: this class is pure OpenCV, so write a tiny
+        ``if __name__ == '__main__':`` harness that feeds it a
+        ``cv2.imread`` of a screenshot from Gazebo. No ROS needed.
+        """
+        raise NotImplementedError("TODO(you): implement HSV threshold + contour detection.")

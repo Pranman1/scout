@@ -93,17 +93,17 @@
     <include>
       <uri>model://hazard_cube_red</uri>
       <name>hazard_red</name>
-      <pose>2.5 1.0 0.075 0 0 0</pose>
+      <pose>2.5 1.0 0.15 0 0 0</pose>
     </include>
     <include>
       <uri>model://hazard_cube_yellow</uri>
       <name>hazard_yellow</name>
-      <pose>0.0 3.0 0.075 0 0 0</pose>
+      <pose>0.0 3.0 0.15 0 0 0</pose>
     </include>
     <include>
       <uri>model://hazard_cube_blue</uri>
       <name>hazard_blue</name>
-      <pose>-2.5 0.5 0.075 0 0 0</pose>
+      <pose>-2.5 0.5 0.15 0 0 0</pose>
     </include>
 
     <!-- Optional inner obstacle so exploration isn't a trivial sweep -->

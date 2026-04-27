@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""LDS-02 scan resampler (real-robot only).
+"""LDS-02 scan resampler, real-robot only (SKELETON).
 
-The real LDS-02 laser publishes a variable number of readings per scan
-(typically 250-256). SLAM Toolbox latches onto the first scan's count and
-drops any that differ, which manifests as mapping that starts, freezes,
-starts, freezes.
+Background: the LDS-02 publishes a variable number of readings per scan
+(typically 250-256). SLAM Toolbox latches onto the first scan's count
+and drops any that don't match, which looks like mapping that freezes /
+un-freezes at random. The workaround is to resample every incoming
+``/scan`` to a fixed count and republish on ``/scan_filtered``, which
+SLAM listens to in real mode. Sim is unaffected (the Gazebo laser
+already publishes a constant count) so this node isn't launched there.
 
-This node subscribes to ``/scan``, linearly interpolates every scan up
-to a fixed count (default 360 -> 1 deg resolution), and republishes on
-``/scan_filtered`` with sensor-compatible QoS. SLAM is configured to
-listen on ``/scan_filtered`` in real mode. Sim is unaffected -- the
-stock Gazebo laser already publishes a constant count, so the resampler
-isn't launched there.
+You write ``_cb``. The rest is plumbing.
 """
 import numpy as np
 import rclpy
@@ -42,27 +40,26 @@ class ScanResampler(Node):
         self.get_logger().info(f'Scan resampler running (target count = {self.target_count})')
 
     def _cb(self, msg: LaserScan):
-        n_in = len(msg.ranges)
-        if n_in == 0:
-            return
+        """Resample ``msg.ranges`` to ``self.target_count`` samples and republish.
 
-        input_angles = np.linspace(msg.angle_min, msg.angle_max, n_in)
-        input_ranges = np.array(msg.ranges)
-        target_angles = np.linspace(msg.angle_min, msg.angle_max, self.target_count)
-        target_ranges = np.interp(target_angles, input_angles, input_ranges)
-
-        out = LaserScan()
-        out.header = msg.header
-        out.angle_min = msg.angle_min
-        out.angle_max = msg.angle_max
-        out.angle_increment = (msg.angle_max - msg.angle_min) / (self.target_count - 1)
-        out.time_increment = msg.time_increment
-        out.scan_time = msg.scan_time
-        out.range_min = msg.range_min
-        out.range_max = msg.range_max
-        out.ranges = target_ranges.tolist()
-        out.intensities = []
-        self.pub.publish(out)
+        TODO(you):
+            1. Bail early if ``len(msg.ranges) == 0``.
+            2. Build the *input* angle axis: ``np.linspace(angle_min,
+               angle_max, len(msg.ranges))``.
+            3. Build the *target* angle axis: ``np.linspace(angle_min,
+               angle_max, self.target_count)``.
+            4. ``np.interp`` target onto input. Linear interpolation is
+               fine -- the LDS-02 is already noisy enough that fancier
+               schemes don't buy you much.
+            5. Populate a fresh ``LaserScan``:
+                - copy header / angle_min / angle_max / time_increment /
+                  scan_time / range_min / range_max verbatim,
+                - set ``angle_increment = (angle_max - angle_min) /
+                  (self.target_count - 1)``,
+                - ``ranges = resampled.tolist()``, ``intensities = []``.
+            6. Publish.
+        """
+        raise NotImplementedError("TODO(you): implement scan resampling.")
 
 
 def main(args=None):

@@ -31,3 +31,6 @@ Thumbs.db
 *.tmp
 *.bak
 *~
+
+# Scratch/experimental directories (delete when done)
+rtabmap_scratch/

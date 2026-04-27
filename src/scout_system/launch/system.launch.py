@@ -47,8 +47,13 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 
 
-def _cond(expr: str):
-    return IfCondition(PythonExpression([expr]))
+def _cond(expr):
+    """Build an IfCondition from a list of substitutions/strings.
+
+    Callers pass a list (e.g. ``sim_ex + [' and '] + needs_slam_ex``);
+    PythonExpression wants that list directly, not wrapped in another.
+    """
+    return IfCondition(PythonExpression(expr))
 
 
 def generate_launch_description():
@@ -71,19 +76,31 @@ def generate_launch_description():
     world = LaunchConfiguration('world')
     map_name_input = LaunchConfiguration('map_name')
 
-    # auto map name: provided > world_stem > 'real_map'
+    # auto map name: provided > world_stem > 'real_map'.
+    # `world` may come in as either a bare filename ('scout_arena.world') or
+    # an absolute path; rsplit('/', 1)[-1] grabs just the filename portion so
+    # the resulting map name stays sane ('sim_scout_arena' either way).
     final_map_name = PythonExpression([
         "'", map_name_input, "' if '", map_name_input, "' != '' else ",
-        "('sim_' + '", world, "'.replace('.world','') if '", mode, "' == 'sim' "
-        "else 'real_map')"
+        "('sim_' + '", world, "'.rsplit('/', 1)[-1].replace('.world','') ",
+        "if '", mode, "' == 'sim' else 'real_map')"
     ])
-    map_base_path = PathJoinSubstitution([pkg_scout, 'maps', final_map_name])
-    hazards_file = PathJoinSubstitution([pkg_scout, 'maps',
+    # Save outside install/ so maps survive `colcon build`. Conventional
+    # ROS scratch location.
+    maps_dir = os.path.expanduser('~/.ros/scout_maps')
+    os.makedirs(maps_dir, exist_ok=True)
+    map_base_path = PathJoinSubstitution([maps_dir, final_map_name])
+    hazards_file = PathJoinSubstitution([maps_dir,
                                          PythonExpression(
                                              ["'", final_map_name, "' + '_hazards.json'"]
                                          )])
 
     nav_params = PathJoinSubstitution([pkg_scout, 'config', 'scout_params.yaml'])
+    # Relaxed-tolerance variant used while SLAM is active (auto_mapper phase);
+    # swaps back to scout_params.yaml for mission/nav tasks that need precision.
+    nav_params_mapping = PathJoinSubstitution(
+        [pkg_scout, 'config', 'scout_params_mapping.yaml']
+    )
     slam_params = PathJoinSubstitution([pkg_scout, 'config', 'slam_params.yaml'])
     explore_params = PathJoinSubstitution([pkg_scout, 'config', 'explore_params.yaml'])
     hazard_params = PathJoinSubstitution([pkg_scout, 'config', 'hazard_params.yaml'])
@@ -184,31 +201,23 @@ def generate_launch_description():
         condition=_cond(real_ex + [' and '] + needs_slam_ex),
     )
 
-    # Nav2 (mapping config: no AMCL, map comes from SLAM)
+    # Nav2 (mapping config: no AMCL, map comes from SLAM).
+    # Uses the relaxed-tolerance params so the auto_mapper's frontier goals
+    # don't waste seconds inching to exact poses.
     nav2_mapping = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
         ),
         launch_arguments={
             'use_sim_time': PythonExpression(sim_ex),
-            'params_file': nav_params,
+            'params_file': nav_params_mapping,
             'map_subscribe_transient_local': 'true',
         }.items(),
         condition=_cond(needs_slam_ex),
     )
 
-    # ============================================================ 4. EXPLORE + AUTO MAPPER
-    explore_lite = Node(
-        package='explore_lite',
-        executable='explore',
-        name='explore_node',
-        output='screen',
-        parameters=[explore_params,
-                    {'use_sim_time': PythonExpression(sim_ex)}],
-        condition=_cond(needs_slam_ex + [' and ('] + scout_task_ex
-                        + [" or ("] + map_task_ex + [' and '] + auto_map_ex + [')'] + [')']),
-    )
-
+    # ============================================================ 4. AUTO MAPPER
+    # Our custom bounded-frontier explorer (replaces explore_lite).
     auto_mapper = Node(
         package='scout_system',
         executable='auto_mapper',
@@ -315,7 +324,7 @@ def generate_launch_description():
         gazebo, spawn_robot,
         rviz,
         scan_resampler, slam_sim, slam_real, nav2_mapping,
-        explore_lite, auto_mapper, manual_mapper,
+        auto_mapper, manual_mapper,
         hazard_detector, hazard_tracker,
         nav2_saved,
         ur7_stub, mission_manager,

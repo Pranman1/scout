@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Per-frame hazard detector.
+"""Per-frame hazard detector (SKELETON).
 
-Subscribes to the camera image + intrinsics, runs a configurable backend
-(see ``scout_system.detectors``), projects each detection's pixel center
-onto the world *ground plane* (z = cube_half_height) using TF between
-``map`` and the camera optical frame, and publishes one ``scout_msgs/Hazard``
-per detection on ``/hazards/raw`` plus a visualization MarkerArray on
-``/hazards/raw/markers``.
+This node owns the **ROS-side plumbing only**; you write the perception +
+geometry. The responsibilities expected of your completed version are:
 
-Pose estimation is deliberately simple for v1:
-    * intrinsics from /camera/camera_info,
-    * back-project pixel to a ray in the optical frame,
-    * intersect that ray with the plane z = cube_half_height in ``map``.
+    * subscribe to a camera image + CameraInfo stream,
+    * hand each frame to ``self.detector`` (a ``scout_system.detectors``
+      backend) and iterate over the returned ``Detection`` objects,
+    * back-project each detection's center pixel onto the world ground
+      plane (z = cube_half_height) in the ``map`` frame using the camera
+      intrinsics and the TF tree,
+    * publish one ``scout_msgs/Hazard`` per detection on ``/hazards/raw``,
+    * publish a MarkerArray to ``/hazards/raw/markers`` for RViz.
 
-This is good enough while the cubes sit on a flat floor. The clear
-TODO hook is laser fusion (use /scan range at the detection's bearing
-for real depth) -- swap it in here once the HSV path is solid.
+The initial geometry is deliberately simple (ray-plane intersection with
+a flat-floor assumption). Swapping in laser fusion later is a clean
+upgrade path -- the node contract doesn't have to change.
 """
 from __future__ import annotations
 
@@ -97,6 +97,7 @@ class HazardDetector(Node):
 
     # ------------------------------------------------------------------ config
     def _load_config(self) -> dict:
+        """Load ``hazard_params.yaml`` off disk. Plumbing only."""
         path = self.get_parameter('params_file').value
         if not path:
             self.get_logger().warn('No params_file provided; using empty config.')
@@ -110,125 +111,79 @@ class HazardDetector(Node):
 
     # ------------------------------------------------------------------ sub cbs
     def _info_cb(self, msg: CameraInfo):
+        """Cache the 3x3 intrinsic matrix on the first message we see."""
         if self.intrinsics is None:
-            k = np.array(msg.k).reshape(3, 3)
-            self.intrinsics = k
+            self.intrinsics = np.array(msg.k).reshape(3, 3)
+            k = self.intrinsics
             self.get_logger().info(
                 f'Camera intrinsics received (fx={k[0, 0]:.1f}, fy={k[1, 1]:.1f}, '
                 f'cx={k[0, 2]:.1f}, cy={k[1, 2]:.1f})'
             )
 
     def _image_cb(self, msg: Image):
-        if self.intrinsics is None:
-            return  # wait for camera_info
-        try:
-            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().warn(f'cv_bridge failure: {exc}', throttle_duration_sec=5.0)
-            return
+        """Process one frame.
 
-        detections = self.detector.detect(frame)
-        if not detections:
-            return
-
-        stamp = msg.header.stamp
-        camera_frame = msg.header.frame_id or 'camera_link'
-
-        markers = MarkerArray()
-        for idx, det in enumerate(detections):
-            point_map = self._pixel_to_map(det, camera_frame, stamp)
-            if point_map is None:
-                continue
-
-            hz = Hazard()
-            hz.header.stamp = stamp
-            hz.header.frame_id = self.map_frame
-            hz.id = -1
-            hz.color = det.label
-            hz.category = self.color_to_category.get(det.label, det.label)
-            hz.position = point_map
-            hz.confidence = det.confidence
-            hz.observation_count = 1
-            self.pub_raw.publish(hz)
-
-            markers.markers.append(self._make_marker(idx, hz, stamp))
-
-        if markers.markers:
-            self.pub_markers.publish(markers)
+        TODO(you):
+            1. Return early if ``self.intrinsics`` is None (CameraInfo not
+               yet seen) -- no point running detection without a projection.
+            2. Convert ``msg`` to a BGR numpy image via ``self.bridge``.
+               Wrap in try/except so a single bad frame doesn't kill the
+               node; use ``self.get_logger().warn(..., throttle_duration_sec=5.0)``.
+            3. Run ``detections = self.detector.detect(frame)``. If empty,
+               return.
+            4. For each detection, call ``self._pixel_to_map(det, ...)``.
+               If it returns None (bad TF, behind camera, too far), skip.
+            5. Build a ``scout_msgs/Hazard``, stamp it in ``self.map_frame``,
+               set ``id = -1`` (the tracker assigns real IDs), fill
+               color/category/position/confidence, and publish on
+               ``self.pub_raw``.
+            6. Append a marker (see ``_make_marker``) to a local
+               ``MarkerArray`` and publish once at the end if non-empty.
+        """
+        raise NotImplementedError("TODO(you): implement the per-frame detection pipeline.")
 
     # ------------------------------------------------------------------ geom
     def _pixel_to_map(
         self, det: Detection, camera_frame: str, stamp
     ) -> Optional[Point]:
-        """Back-project pixel (cx, cy) onto plane z=cube_half in map frame."""
-        if self.intrinsics is None:
-            return None
-        k = self.intrinsics
-        fx, fy = k[0, 0], k[1, 1]
-        cx_i, cy_i = k[0, 2], k[1, 2]
+        """Back-project (det.cx, det.cy) onto the plane z = cube_size / 2 in ``self.map_frame``.
 
-        # Ray in the camera *optical* frame (x-right, y-down, z-forward).
-        x_n = (det.cx - cx_i) / fx
-        y_n = (det.cy - cy_i) / fy
-        ray_cam = np.array([x_n, y_n, 1.0])
-        ray_cam /= np.linalg.norm(ray_cam)
+        TODO(you):
+            1. Build a unit ray in the camera optical frame from the
+               pinhole model: x_n = (u - cx) / fx, y_n = (v - cy) / fy,
+               z_n = 1.0, then normalize. Remember the optical frame
+               convention is x-right, y-down, z-forward.
+            2. Look up the transform from ``camera_frame`` to
+               ``self.map_frame`` at ``stamp`` using
+               ``self.tf_buffer.lookup_transform(...)``. Give it a
+               timeout (~0.3 s). On failure, warn (throttled) and
+               return None.
+            3. Rotate the ray by the transform's orientation and add
+               the translation as the ray origin. You can either
+               hand-roll a quaternion->rotmat (see numpy), or use
+               ``tf_transformations.quaternion_matrix`` from the
+               ``tf_transformations`` package.
+            4. Intersect that ray with the plane z = cube_size / 2:
+               if |ray.z| < eps return None; else
+               s = (plane_z - origin.z) / ray.z. Reject s <= 0
+               (behind camera) and s > self.max_range (sanity cap).
+            5. Return ``Point(x=..., y=..., z=plane_z)``.
 
-        # Lookup camera->map transform at the image stamp.
-        try:
-            tf = self.tf_buffer.lookup_transform(
-                self.map_frame, camera_frame, stamp,
-                rclpy.duration.Duration(seconds=0.3),
-            )
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().warn(
-                f'TF {self.map_frame}<-{camera_frame} unavailable: {exc}',
-                throttle_duration_sec=5.0,
-            )
-            return None
-
-        t = tf.transform.translation
-        q = tf.transform.rotation
-        R = _quat_to_mat(q.x, q.y, q.z, q.w)
-        origin = np.array([t.x, t.y, t.z])
-        ray_map = R @ ray_cam
-
-        # Intersect with plane z = plane_z.
-        plane_z = self.cube_size / 2.0
-        if abs(ray_map[2]) < 1e-6:
-            return None
-        s = (plane_z - origin[2]) / ray_map[2]
-        if s <= 0 or s > self.max_range:
-            return None
-
-        p = origin + s * ray_map
-        return Point(x=float(p[0]), y=float(p[1]), z=float(p[2]))
+        Returns None for any failure so the caller can just skip.
+        """
+        raise NotImplementedError("TODO(you): implement pixel -> map-frame projection.")
 
     def _make_marker(self, idx: int, hz: Hazard, stamp) -> Marker:
-        m = Marker()
-        m.header.frame_id = self.map_frame
-        m.header.stamp = stamp
-        m.ns = 'hazards_raw'
-        m.id = idx
-        m.type = Marker.SPHERE
-        m.action = Marker.ADD
-        m.pose.position = hz.position
-        m.pose.orientation.w = 1.0
-        m.scale.x = m.scale.y = m.scale.z = 0.2
-        m.color = _COLOR_TO_RGBA.get(hz.color, ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.8))
-        m.lifetime.sec = 1
-        return m
+        """Build an RViz SPHERE marker at ``hz.position`` coloured by ``hz.color``.
 
-
-def _quat_to_mat(x: float, y: float, z: float, w: float) -> np.ndarray:
-    """Minimal quaternion -> 3x3 rotation matrix (no external deps)."""
-    xx, yy, zz = x * x, y * y, z * z
-    xy, xz, yz = x * y, x * z, y * z
-    wx, wy, wz = w * x, w * y, w * z
-    return np.array([
-        [1 - 2 * (yy + zz),     2 * (xy - wz),     2 * (xz + wy)],
-        [    2 * (xy + wz), 1 - 2 * (xx + zz),     2 * (yz - wx)],
-        [    2 * (xz - wy),     2 * (yz + wx), 1 - 2 * (xx + yy)],
-    ])
+        TODO(you):
+            - ns='hazards_raw', id=idx, type=SPHERE, action=ADD.
+            - scale ~0.2 m, short lifetime (~1 s) so stale detections
+              expire on their own.
+            - Use ``_COLOR_TO_RGBA`` (module-level above) for the fill,
+              falling back to white if the label is unknown.
+        """
+        raise NotImplementedError("TODO(you): implement marker construction.")
 
 
 def main(args=None):

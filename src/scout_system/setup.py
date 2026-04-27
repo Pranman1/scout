@@ -49,6 +49,7 @@ setup(
     entry_points={
         'console_scripts': [
             'manual_mapper   = scout_system.manual_mapper:main',
+            'scout_teleop    = scout_system.scout_teleop:main',
             'auto_mapper     = scout_system.auto_mapper:main',
             'scan_resampler  = scout_system.scan_resampler:main',
             'mission_manager = scout_system.mission_manager:main',

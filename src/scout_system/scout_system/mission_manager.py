@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""Mission manager for the scout.
+"""Mission manager for the scout (SKELETON).
 
-Responsibilities (all after Nav2 is up and a map is loaded):
+High-level state machine that runs **after** Nav2 is up and a map is
+loaded. Expected behaviour in your completed version:
 
-1. Wait for Nav2 to activate and for the map->base_link transform to
-   exist (i.e. AMCL has localized us).
-2. Collect the hazard list:
-     * primary source: latched ``/hazards/confirmed`` topic from
-       hazard_tracker,
-     * fallback source: ``waypoints_file`` parameter (parsed like the
-       grazen waypoints.txt -- absolute map-frame X/Y, '#' comments).
-3. For each hazard: drive to a stand-off pose in front of it, publish
-   ``/mission_status`` transitions, call the ``/request_package`` service
-   (UR7 seam) with the hazard's category, then move on.
-4. Publish a final ``PHASE_COMPLETE`` status.
+1. Wait for Nav2 to activate and for a valid map -> base_link transform
+   (i.e. AMCL has localized the robot).
+2. Source the hazard list:
+     * primary: latched ``/hazards/confirmed`` from hazard_tracker,
+     * fallback: ``waypoints_file`` parameter (absolute map-frame X/Y,
+       '#' comments, one per line).
+3. For each hazard, drive to a stand-off pose in front of it (don't
+   collide with the cube), publish ``/mission_status`` transitions,
+   call the ``/request_package`` service (the UR7 seam) with the
+   hazard's category, then move on.
+4. Publish a final ``PHASE_COMPLETE`` (or ``PHASE_ABORTED`` if nothing
+   to visit).
+
+``MissionStatus`` phase constants are defined in
+``scout_msgs/msg/MissionStatus.msg`` -- prefer
+``MissionStatus.PHASE_EN_ROUTE`` etc. over raw ints.
 """
 from __future__ import annotations
 
@@ -50,7 +56,7 @@ class MissionManager(Node):
         super().__init__('mission_manager')
 
         self.declare_parameter('waypoints_file', '')
-        self.declare_parameter('standoff_distance', 0.6)   # meters in front of hazard
+        self.declare_parameter('standoff_distance', 0.6)
         self.declare_parameter('hazards_wait_timeout', 3.0)
         self.declare_parameter('request_package_timeout', 15.0)
 
@@ -73,10 +79,12 @@ class MissionManager(Node):
 
     # ------------------------------------------------------------------ helpers
     def _hazard_cb(self, msg: Hazard):
-        for existing in self.hazards:
-            if existing.id == msg.id:
-                return
-        self.hazards.append(msg)
+        """Append ``msg`` to ``self.hazards`` if its id isn't already present.
+
+        TODO(you): de-dup by id; the latched topic re-sends periodically
+        so this callback will be hit multiple times per hazard.
+        """
+        raise NotImplementedError("TODO(you): dedupe-append incoming hazards.")
 
     def _publish_status(
         self,
@@ -86,6 +94,7 @@ class MissionManager(Node):
         current_cat: str = '',
         visited: int = 0,
     ):
+        """Fill a ``MissionStatus`` msg and publish it. Pure plumbing."""
         s = MissionStatus()
         s.header.stamp = self.get_clock().now().to_msg()
         s.phase = phase
@@ -97,171 +106,86 @@ class MissionManager(Node):
         self.status_pub.publish(s)
 
     def _is_localized(self) -> bool:
-        try:
-            return self.tf_buffer.can_transform(
-                'map', 'base_link', Time(), timeout=Duration(seconds=1.0)
-            )
-        except Exception:  # noqa: BLE001
-            return False
+        """Return True if map -> base_link is currently available.
+
+        TODO(you): use ``self.tf_buffer.can_transform('map', 'base_link',
+        Time(), timeout=Duration(seconds=1.0))`` inside a try/except.
+        """
+        raise NotImplementedError("TODO(you): implement the localization check.")
 
     def _current_xy(self) -> Tuple[float, float]:
-        try:
-            tf = self.tf_buffer.lookup_transform('map', 'base_link', Time())
-            return tf.transform.translation.x, tf.transform.translation.y
-        except Exception:  # noqa: BLE001
-            return 0.0, 0.0
+        """Return (x, y) of base_link in map; (0.0, 0.0) on TF failure.
+
+        TODO(you): ``self.tf_buffer.lookup_transform('map', 'base_link',
+        Time())`` and return ``(tf.transform.translation.x, .y)``.
+        """
+        raise NotImplementedError("TODO(you): implement current-pose lookup.")
 
     def _standoff_pose(self, target: Point, robot_x: float, robot_y: float) -> PoseStamped:
-        """Build a PoseStamped in front of ``target``, facing it, at
-        ``self.standoff`` meters along the robot->target ray."""
-        dx = target.x - robot_x
-        dy = target.y - robot_y
-        dist = math.hypot(dx, dy)
-        if dist < 1e-3:
-            ux, uy = 1.0, 0.0
-        else:
-            ux, uy = dx / dist, dy / dist
+        """Build a PoseStamped sitting ``self.standoff`` m in front of ``target``,
+        facing it from the robot's current position.
 
-        goal_x = target.x - ux * self.standoff
-        goal_y = target.y - uy * self.standoff
-        yaw = math.atan2(uy, ux)
-
-        pose = PoseStamped()
-        pose.header.frame_id = 'map'
-        pose.header.stamp = self.get_clock().now().to_msg()
-        pose.pose.position.x = goal_x
-        pose.pose.position.y = goal_y
-        pose.pose.orientation.z = math.sin(yaw / 2.0)
-        pose.pose.orientation.w = math.cos(yaw / 2.0)
-        return pose
+        TODO(you):
+            1. Compute the unit vector from (robot_x, robot_y) -> target
+               (guard against zero length).
+            2. Goal XY = target - standoff * unit_vector (so we stop
+               *in front of* the cube, not on it).
+            3. Goal yaw = atan2(dy, dx) so the robot faces the target.
+            4. Pack into a ``PoseStamped`` with frame_id='map' and
+               current stamp. Remember yaw -> quaternion:
+               qz = sin(yaw/2), qw = cos(yaw/2), qx=qy=0.
+        """
+        raise NotImplementedError("TODO(you): implement standoff pose geometry.")
 
     def _collect_waypoint_hazards(self) -> List[Hazard]:
-        """Parse the fallback waypoints.txt into dummy Hazard messages."""
-        if not self.waypoints_file or not os.path.exists(self.waypoints_file):
-            return []
-        fake: List[Hazard] = []
-        with open(self.waypoints_file) as fh:
-            for idx, raw in enumerate(fh):
-                line = raw.strip()
-                if not line or line.startswith('#'):
-                    continue
-                parts = line.split()
-                try:
-                    x, y = float(parts[0]), float(parts[1])
-                except (ValueError, IndexError):
-                    continue
-                h = Hazard()
-                h.id = idx
-                h.color = 'unknown'
-                h.category = 'waypoint'
-                h.position.x = x
-                h.position.y = y
-                h.confidence = 1.0
-                h.observation_count = 1
-                fake.append(h)
-        return fake
+        """Parse ``waypoints_file`` into fake ``Hazard`` messages (fallback).
+
+        TODO(you):
+            - Return [] if no file set or file doesn't exist.
+            - Each line: 'x y  # optional comment'. Skip blanks/'#'.
+            - Build one Hazard per line with color='unknown',
+              category='waypoint', id=line_index, confidence=1.0.
+        """
+        raise NotImplementedError("TODO(you): implement waypoints fallback parser.")
 
     def _request_package(self, hazard: Hazard) -> bool:
-        if not self.request_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn('/request_package service unavailable; skipping.')
-            return False
-        req = RequestPackage.Request()
-        req.hazard_id = hazard.id
-        req.category = hazard.category
-        req.hazard_position = hazard.position
-        future = self.request_client.call_async(req)
-        end_time = self.get_clock().now() + Duration(seconds=self.req_timeout)
-        while rclpy.ok() and not future.done():
-            if self.get_clock().now() > end_time:
-                self.get_logger().warn('/request_package timed out.')
-                return False
-            rclpy.spin_once(self, timeout_sec=0.1)
-        resp = future.result()
-        if resp is None:
-            return False
-        self.get_logger().info(
-            f'[arm] accepted={resp.accepted} package={resp.package_label} '
-            f'prep_s={resp.estimated_prep_seconds:.1f} msg="{resp.message}"'
-        )
-        return resp.accepted
+        """Call the ``/request_package`` service and log the response.
+
+        TODO(you):
+            1. ``wait_for_service(timeout_sec=2.0)``. Return False with
+               a warn if the service never shows up.
+            2. Build a ``RequestPackage.Request`` filled from ``hazard``.
+            3. ``future = self.request_client.call_async(req)`` and spin
+               manually until ``future.done()`` or ``self.req_timeout``
+               elapses (``spin_once(self, timeout_sec=0.1)`` in a loop).
+            4. Return ``resp.accepted`` on success, False on timeout/
+               failure.
+        """
+        raise NotImplementedError("TODO(you): implement the package-request RPC.")
 
     # ------------------------------------------------------------------ main flow
     def run(self):
-        self._publish_status(MissionStatus.PHASE_IDLE, 'mission_manager starting')
+        """Drive the mission to completion.
 
-        self.get_logger().info('Waiting for Nav2...')
-        self.navigator.waitUntilNav2Active()
-        self.get_logger().info('Nav2 active.')
-
-        self.get_logger().info('Waiting for localization (map->base_link)...')
-        while rclpy.ok() and not self._is_localized():
-            rclpy.spin_once(self, timeout_sec=0.1)
-            self.get_logger().info(
-                '  need a 2D Pose Estimate in RViz if this hangs',
-                throttle_duration_sec=5.0,
-            )
-        self.get_logger().info('Localized.')
-
-        # Give the latched /hazards/confirmed topic a moment to arrive.
-        deadline = self.get_clock().now() + Duration(seconds=self.hazards_wait_timeout)
-        while rclpy.ok() and self.get_clock().now() < deadline and not self.hazards:
-            rclpy.spin_once(self, timeout_sec=0.1)
-
-        if not self.hazards:
-            self.get_logger().warn('No hazards received; falling back to waypoints file.')
-            self.hazards = self._collect_waypoint_hazards()
-
-        if not self.hazards:
-            self.get_logger().error('Nothing to visit. Mission aborted.')
-            self._publish_status(MissionStatus.PHASE_ABORTED, 'no hazards, no waypoints')
-            return
-
-        self._publish_status(
-            MissionStatus.PHASE_PLANNING,
-            f'Visiting {len(self.hazards)} hazard(s)',
-        )
-
-        visited = 0
-        for idx, hazard in enumerate(self.hazards):
-            robot_x, robot_y = self._current_xy()
-            goal = self._standoff_pose(hazard.position, robot_x, robot_y)
-
-            self.get_logger().info(
-                f'[{idx + 1}/{len(self.hazards)}] -> hazard id={hazard.id} '
-                f'cat={hazard.category} at ({hazard.position.x:.2f}, {hazard.position.y:.2f})'
-            )
-            self._publish_status(
-                MissionStatus.PHASE_EN_ROUTE,
-                f'en route to {hazard.category}',
-                current_id=hazard.id,
-                current_cat=hazard.category,
-                visited=visited,
-            )
-
-            self.navigator.goToPose(goal)
-            while not self.navigator.isTaskComplete():
-                rclpy.spin_once(self, timeout_sec=0.1)
-
-            if self.navigator.getResult() != TaskResult.SUCCEEDED:
-                self.get_logger().warn(f'Nav2 failed for hazard {hazard.id}; continuing.')
-                continue
-
-            self._publish_status(
-                MissionStatus.PHASE_AT_HAZARD,
-                f'at {hazard.category}; requesting package',
-                current_id=hazard.id,
-                current_cat=hazard.category,
-                visited=visited,
-            )
-            self._request_package(hazard)
-            visited += 1
-
-        self._publish_status(
-            MissionStatus.PHASE_COMPLETE,
-            f'visited {visited}/{len(self.hazards)} hazards',
-            visited=visited,
-        )
-        self.get_logger().info(f'Mission complete: {visited}/{len(self.hazards)} visited.')
+        TODO(you) -- flow outline:
+            1. Publish PHASE_IDLE status.
+            2. ``self.navigator.waitUntilNav2Active()``.
+            3. Spin until ``self._is_localized()``. Log a throttled hint
+               about the RViz 2D Pose Estimate tool every few seconds.
+            4. Wait up to ``self.hazards_wait_timeout`` for the latched
+               ``/hazards/confirmed`` topic to deliver.
+            5. If still empty, fall back to ``_collect_waypoint_hazards``.
+               If still empty, publish PHASE_ABORTED and return.
+            6. Publish PHASE_PLANNING, then loop over hazards:
+                 a. PHASE_EN_ROUTE + ``self.navigator.goToPose(goal)``.
+                    Spin until ``isTaskComplete()``. Check
+                    ``getResult() == TaskResult.SUCCEEDED``; warn-and-
+                    continue on failure.
+                 b. On success: PHASE_AT_HAZARD -> ``_request_package``
+                    -> bump visited counter.
+            7. Final PHASE_COMPLETE with the visit count.
+        """
+        raise NotImplementedError("TODO(you): implement the mission state machine.")
 
 
 def main():
