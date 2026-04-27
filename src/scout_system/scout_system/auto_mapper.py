@@ -50,7 +50,7 @@ from rclpy.qos import (
 
 import tf2_ros
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import Point as PointMsg
+from geometry_msgs.msg import Point as PointMsg, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid
 from shapely.geometry import Point, Polygon
@@ -98,7 +98,8 @@ class AutoMapper(Node):
         # For the real lab, override this in the launch file.
         self.declare_parameter(
             'bounds_polygon',
-            [-3.7, -3.7,  3.7, -3.7,  3.7, 3.7,  -3.7, 3.7],
+         # [0.0, 0.0, 4.0, 0.0, 4.0, 2.0, 0.0, 2.0],
+            [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
         )
 
         self.map_path = self.get_parameter('map_path').value
@@ -133,6 +134,8 @@ class AutoMapper(Node):
         # we actually pick a target. Only declares COMPLETE once this hits
         # self.max_consecutive_empty, so one flaky pass doesn't end the run.
         self.consecutive_empty = 0
+        self.returning_home = False
+        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
 
         # ---------- ROS plumbing -----------------------------------------
         # SLAM publishes /map as latched (TRANSIENT_LOCAL); match it.
@@ -300,7 +303,7 @@ class AutoMapper(Node):
             wall_neighbors = scipy.ndimage.convolve(
                 wall_mask, kernel, mode='constant', cval=0
             )
-            make_free = unknown & (free_neighbors >= threshold)
+            make_free = unknown & (free_neighbors >= threshold) & (wall_neighbors == 0)
             make_wall = unknown & (wall_neighbors >= threshold)
             if not make_free.any() and not make_wall.any():
                 break
@@ -330,7 +333,7 @@ class AutoMapper(Node):
 
         inside = shapely.vectorized.contains(self.polygon, X, Y)
         data[~inside] = 100
-        data[(data == -1) & inside] = 0  # or 0, whichever is safer for you
+        data[(data == -1) & inside] = 100  # or 0, whichever is safer for you
 
         out = OccupancyGrid()
         out.header = grid.header
@@ -408,6 +411,8 @@ class AutoMapper(Node):
                         f'Stable empty for {self.consecutive_empty} ticks. '
                         'Saving and completing map.'
                     )
+                    self.returning_home = True
+                    self._send_nav_goal(0.0, 0.0)  # return to start pose
                     self.state = State.COMPLETE
                 # else stay in PICK_TARGET; map may update before next tick.
             else:
@@ -509,6 +514,32 @@ class AutoMapper(Node):
         self.nav_succeeded = (status == GoalStatus.STATUS_SUCCEEDED)
         if not self.nav_succeeded:
             self.get_logger().warn(f'Nav goal ended with status={status}')
+        elif self.returning_home:
+            self.returning_home = False
+            self._align_to_zero()
+
+    def _align_to_zero(self):
+        """Spin in place until yaw in map frame is near 0."""
+        import math
+        deadline = time.time() + 8.0
+        while time.time() < deadline and rclpy.ok():
+            try:
+                tf = self.tf_buffer.lookup_transform(
+                    self.map_frame, self.robot_frame, rclpy.time.Time(),
+                    timeout=Duration(seconds=0.2),
+                )
+            except TransformException:
+                break
+            q = tf.transform.rotation
+            yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
+            if abs(yaw) < 0.05:  # ~3 degrees
+                break
+            twist = Twist()
+            twist.angular.z = -0.5 if yaw > 0 else 0.5
+            self.cmd_vel_pub.publish(twist)
+            time.sleep(0.05)
+        self.cmd_vel_pub.publish(Twist())
+        self.get_logger().info('Aligned to start orientation.')
 
     def _save_map(self):
         if not self.map_path:
@@ -529,7 +560,7 @@ class AutoMapper(Node):
             subprocess.run(
                 ['ros2', 'run', 'nav2_map_server', 'map_saver_cli',
                  '-f', self.map_path,
-                 '--ros-args', '-p', 'map_topic:=/scout/final_map'],
+                 '-t', '/scout/final_map'],
                 check=True, capture_output=True, text=True, timeout=30,
             )
             self.get_logger().info('Map saved.')
