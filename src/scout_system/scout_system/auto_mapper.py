@@ -98,8 +98,8 @@ class AutoMapper(Node):
         # For the real lab, override this in the launch file.
         self.declare_parameter(
             'bounds_polygon',
-         # [0.0, 0.0, 4.0, 0.0, 4.0, 2.0, 0.0, 2.0],
-            [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
+            [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
+            # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
         )
 
         self.map_path = self.get_parameter('map_path').value
@@ -252,7 +252,7 @@ class AutoMapper(Node):
                       touched_ids = np.unique(unknown_labels[neighbors&unknown_mask])#
                       touched_ids = touched_ids[touched_ids != 0]
                       mass = int(unknown_sizes[touched_ids].sum())
-                      if mass < 30:
+                      if mass < 5:
                         continue
 
                       frontier_clusters.append(Frontier(x, y, size, mass))
@@ -273,7 +273,7 @@ class AutoMapper(Node):
         return False
 
 
-    def _postprocess_grid(self, grid, threshold=7, max_iters=5):
+    def _postprocess_grid(self, grid, threshold=5, max_iters=2):
         """Majority-vote cleanup of unknown cells.
 
         For each unknown pixel, look at its 8 neighbors:
@@ -294,21 +294,21 @@ class AutoMapper(Node):
             unknown = (data == -1)
             if not unknown.any():
                 break
-            free_mask = (data == 0).astype(int)
+            # free_mask = (data == 0).astype(int)
             wall_mask = (data == 100).astype(int)
             # the above bit is like a convolution mask that counts the number of free or wall neighbors
-            free_neighbors = scipy.ndimage.convolve(
-                free_mask, kernel, mode='constant', cval=0
-            )
+            # free_neighbors = scipy.ndimage.convolve(
+            #     free_mask, kernel, mode='constant', cval=0
+            # )
             wall_neighbors = scipy.ndimage.convolve(
                 wall_mask, kernel, mode='constant', cval=0
             )
-            make_free = unknown & (free_neighbors >= threshold) & (wall_neighbors == 0)
+            # make_free = unknown & (free_neighbors >= threshold) & (wall_neighbors == 0)
             make_wall = unknown & (wall_neighbors >= threshold)
-            if not make_free.any() and not make_wall.any():
+            if not make_wall.any():
                 break
-            data[make_free] = 0
-            data[make_wall] = 100
+            # data[make_free] = 0
+            data[make_wall] = 100  
 
         # --- Seal off pockets disconnected from the robot's room. ---
         robot_xy = self._get_robot_xy()
@@ -436,7 +436,6 @@ class AutoMapper(Node):
             # else: stay in COMPLETE (terminal, no-op forever)
         else:
             self.get_logger().error(f'Unknown state: {self.state}')
-        
 
     # ===================================================================
     # PLUMBING (DONE)
