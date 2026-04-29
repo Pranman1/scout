@@ -224,9 +224,18 @@ def generate_launch_description():
         name='auto_mapper',
         output='screen',
         parameters=[{
+            'use_sim_time': PythonExpression(sim_ex),
             'map_path': PathJoinSubstitution([map_base_path]),
             'completion_timeout': 10.0,
             'save_interval': 0.0,
+            # Default in code is 3 -- way too tight given Nav2/SLAM warm-up.
+            # First few ticks often fail (Nav2 not ready) which blacklists a
+            # target, then there are no frontiers because /map has barely any
+            # free cells yet, and the run "completes" before it ever started.
+            # 60 ticks at tick_period=1.0s = 60 s grace, which comfortably
+            # covers warm-up. Bring it back down once exploration starts
+            # converging if you want a snappier finish.
+            'max_consecutive_empty': 60,
             # scout flow needs to keep running to transition into mission;
             # pure 'map' mode can shut down at the end if you want, but we
             # leave it up so Ctrl-C always belongs to you.
@@ -253,12 +262,33 @@ def generate_launch_description():
         name='hazard_detector',
         output='screen',
         parameters=[{
+            'use_sim_time': PythonExpression(sim_ex),
             'params_file': hazard_params,
             'image_topic': '/camera/image_raw',
             'camera_info_topic': '/camera/camera_info',
             'map_frame': 'map',
-            'cube_size_m': 0.15,
+            # All other tuning (depth-jump, cluster width, bearing tol, etc.)
+            # lives in hazard_detector.py defaults; override here if needed.
             'max_range_m': 3.5,
+            # Require >= 2 lidar rays per cluster -- single-ray clusters
+            # are usually noise. Cones beyond ~3 m subtend 1 ray only,
+            # so this also caps effective range; lower to 1 if you need
+            # those long-range hits and accept more noise.
+            'cluster_min_rays': 2,
+            # Cone is 14 cm wide. 0.22 m gives ~5 cm slack for ray noise
+            # while still cleanly rejecting the 0.5 m pillar.
+            'cluster_max_width_m': 0.22,
+            # If a cluster has a VALID finite border on either side,
+            # that border range must be at least this much farther than
+            # the cluster (otherwise the neighbour is part of the same
+            # object -- pillar sub-cluster). NaN borders (no return /
+            # wall beyond max_range) are allowed because cones in the
+            # middle of an arena often have nothing visible beside them.
+            'cone_clearance_m': 0.6,
+            # Reject any cluster within this much of the lidar's hard
+            # range limit -- those are wall slices clipped by the
+            # range limit. 0.4 m at max_range=3.5 -> reject > 3.1 m.
+            'max_range_margin_m': 0.4,
         }],
         condition=_cond(needs_perception_ex),
     )
@@ -269,8 +299,17 @@ def generate_launch_description():
         name='hazard_tracker',
         output='screen',
         parameters=[{
-            'merge_radius_m': 0.5,
+            'use_sim_time': PythonExpression(sim_ex),
+            # Cones in the arena are >= 3.2 m apart, so 1.0 m is a
+            # comfortable merge ceiling -- catches any noisy fusion
+            # that lands a meter off without ever conflating two
+            # real cones.
+            'merge_radius_m': 1.0,
             'min_observations': 3,
+            # We have exactly 3 cones, one per color. Hard cap stops
+            # phantom tracks: any same-colour observation gets folded
+            # into the existing track, even if it's outside merge_radius.
+            'max_tracks_per_color': 1,
             'hazards_file': PathJoinSubstitution([hazards_file]),
             'republish_period_s': 2.0,
         }],

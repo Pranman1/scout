@@ -98,8 +98,9 @@ class AutoMapper(Node):
         # For the real lab, override this in the launch file.
         self.declare_parameter(
             'bounds_polygon',
-            [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
+            # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
             # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
+            [-3.0, -3.0, 3.0, -3.0, 3.0, 3.0, -3.0, 3.0],
         )
 
         self.map_path = self.get_parameter('map_path').value
@@ -531,10 +532,10 @@ class AutoMapper(Node):
                 break
             q = tf.transform.rotation
             yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
-            if abs(yaw) < 0.05:  # ~3 degrees
+            if abs(yaw) < 0.02:  # ~1 degree
                 break
             twist = Twist()
-            twist.angular.z = -0.5 if yaw > 0 else 0.5
+            twist.angular.z = max(-0.4, min(0.4, -1.5 * yaw))
             self.cmd_vel_pub.publish(twist)
             time.sleep(0.05)
         self.cmd_vel_pub.publish(Twist())

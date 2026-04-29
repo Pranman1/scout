@@ -10,18 +10,21 @@ detector:
 
   # Minimum contour area (pixels) to count as a hazard in the HSV backend.
   # Tune this if your camera resolution changes.
-  min_area_px: 400
+  min_area_px: 50
 
   # OpenCV HSV ranges. H is 0-180, S and V are 0-255.
   # Red needs two ranges because its hue wraps across 0.
+  # S minimums are deliberately high (180+) -- walls are gray (S=0),
+  # so cones win cleanly. If you ever start using cones with washed-
+  # out colors (sun-bleached real-world cones), drop these to ~140.
   hsv:
     red:
-      - {lo: [  0, 120,  70], hi: [ 10, 255, 255]}
-      - {lo: [170, 120,  70], hi: [180, 255, 255]}
+      - {lo: [  0, 180,  70], hi: [ 10, 255, 255]}
+      - {lo: [170, 180,  70], hi: [180, 255, 255]}
     yellow:
-      - {lo: [ 20, 120, 120], hi: [ 35, 255, 255]}
+      - {lo: [ 20, 180, 120], hi: [ 35, 255, 255]}
     blue:
-      - {lo: [100, 150,  50], hi: [130, 255, 255]}
+      - {lo: [100, 180,  50], hi: [130, 255, 255]}
 
   # Placeholder for the future YOLO backend (see detectors/yolo.py).
   yolo:

@@ -1,0 +1,54 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <!--
+    FSAE / lab-style traffic cone, ~12 inches (305 mm) tall.
+    Body is a 64-sided procedural cone mesh (cone.obj) so it actually
+    looks like a cone, not stacked cylinders. Mesh is in unit space
+    (apex at (0,0,1), base radius 1 at z=0); SDF scale gives it
+    physical dimensions: 70 mm base radius, 290 mm body height.
+    Origin: bottom-center of the skirt (sits flush on z=0).
+  -->
+  <model name="hazard_cone_red">
+    <static>true</static>
+    <link name="link">
+      <!-- Square skirt: 180 x 180 x 15 mm -->
+      <collision name="skirt_col">
+        <pose>0 0 0.0075 0 0 0</pose>
+        <geometry><box><size>0.18 0.18 0.015</size></box></geometry>
+      </collision>
+      <visual name="skirt_vis">
+        <pose>0 0 0.0075 0 0 0</pose>
+        <geometry><box><size>0.18 0.18 0.015</size></box></geometry>
+        <material>
+          <ambient>0.9 0.05 0.05 1</ambient>
+          <diffuse>1.0 0.05 0.05 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <emissive>0.15 0.0 0.0 1</emissive>
+        </material>
+      </visual>
+
+      <!-- Cone body mesh, scaled to 70 mm base radius x 290 mm tall -->
+      <visual name="body_vis">
+        <pose>0 0 0.015 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://hazard_cone_red/cone.obj</uri>
+            <scale>0.07 0.07 0.290</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.9 0.05 0.05 1</ambient>
+          <diffuse>1.0 0.05 0.05 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <emissive>0.15 0.0 0.0 1</emissive>
+        </material>
+      </visual>
+
+      <!-- Coarse single-cylinder collision for the body. -->
+      <collision name="body_col">
+        <pose>0 0 0.16 0 0 0</pose>
+        <geometry><cylinder><radius>0.04</radius><length>0.290</length></cylinder></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,48 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <!--
+    FSAE / lab-style traffic cone, ~12 inches (305 mm) tall.
+    See hazard_cone_red/model.sdf for shape commentary.
+    Origin: bottom-center of the skirt (sits flush on z=0).
+  -->
+  <model name="hazard_cone_yellow">
+    <static>true</static>
+    <link name="link">
+      <collision name="skirt_col">
+        <pose>0 0 0.0075 0 0 0</pose>
+        <geometry><box><size>0.18 0.18 0.015</size></box></geometry>
+      </collision>
+      <visual name="skirt_vis">
+        <pose>0 0 0.0075 0 0 0</pose>
+        <geometry><box><size>0.18 0.18 0.015</size></box></geometry>
+        <material>
+          <ambient>0.95 0.85 0.05 1</ambient>
+          <diffuse>1.0 0.95 0.05 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <emissive>0.15 0.12 0.0 1</emissive>
+        </material>
+      </visual>
+
+      <visual name="body_vis">
+        <pose>0 0 0.015 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://hazard_cone_yellow/cone.obj</uri>
+            <scale>0.07 0.07 0.290</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.95 0.85 0.05 1</ambient>
+          <diffuse>1.0 0.95 0.05 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <emissive>0.15 0.12 0.0 1</emissive>
+        </material>
+      </visual>
+
+      <collision name="body_col">
+        <pose>0 0 0.16 0 0 0</pose>
+        <geometry><cylinder><radius>0.04</radius><length>0.290</length></cylinder></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

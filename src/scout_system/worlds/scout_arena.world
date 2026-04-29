@@ -4,7 +4,7 @@
     Scout Arena
     ============
     8 m x 8 m walled room (walls at +-4 m, 1.0 m tall) with:
-      * 3 colored hazard cubes (red=fire, yellow=chemical, blue=medical)
+      * 3 colored FSAE-style traffic cones (~12", red=fire, yellow=chemical, blue=medical)
       * a dock pad at (-3, -3)
       * a static UR7 placeholder at (-3.5, -3) next to the dock
 
@@ -89,21 +89,22 @@
       <pose>-3.5 -3.0 0.4 0 0 0</pose>
     </include>
 
-    <!-- ============ HAZARD CUBES ============ -->
+    <!-- ============ HAZARD CONES (FSAE-style, ~12 in) ============ -->
+    <!-- Cone model origin is bottom-center of the skirt, so z=0 sits flush. -->
     <include>
-      <uri>model://hazard_cube_red</uri>
+      <uri>model://hazard_cone_red</uri>
       <name>hazard_red</name>
-      <pose>2.5 1.0 0.15 0 0 0</pose>
+      <pose>2.5 1.0 0.0 0 0 0</pose>
     </include>
     <include>
-      <uri>model://hazard_cube_yellow</uri>
+      <uri>model://hazard_cone_yellow</uri>
       <name>hazard_yellow</name>
-      <pose>0.0 3.0 0.15 0 0 0</pose>
+      <pose>0.0 3.0 0.0 0 0 0</pose>
     </include>
     <include>
-      <uri>model://hazard_cube_blue</uri>
+      <uri>model://hazard_cone_blue</uri>
       <name>hazard_blue</name>
-      <pose>-2.5 0.5 0.15 0 0 0</pose>
+      <pose>-2.5 0.5 0.0 0 0 0</pose>
     </include>
 
     <!-- Optional inner obstacle so exploration isn't a trivial sweep -->

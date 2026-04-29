@@ -77,10 +77,19 @@ class HazardTracker(Node):
         self.declare_parameter('min_observations', 3)
         self.declare_parameter('hazards_file', '')
         self.declare_parameter('republish_period_s', 2.0)
+        # Hard cap on simultaneous tracks per color. Default 1 because
+        # the scout arena has exactly one cone of each colour. Once
+        # this cap is reached, any further same-colour observations
+        # always update the existing track instead of spawning a new
+        # one (treating "outlier" detections as noise rather than a
+        # second cone). Bump to >1 only if your environment can
+        # legitimately have multiple objects of the same colour.
+        self.declare_parameter('max_tracks_per_color', 1)
 
         self.merge_radius = float(self.get_parameter('merge_radius_m').value)
         self.min_obs = int(self.get_parameter('min_observations').value)
         self.hazards_file = self.get_parameter('hazards_file').value
+        self.max_per_color = int(self.get_parameter('max_tracks_per_color').value)
         period = float(self.get_parameter('republish_period_s').value)
 
         self._tracks: List[_Track] = []
@@ -108,29 +117,102 @@ class HazardTracker(Node):
     def _on_raw(self, hz: Hazard):
         """Associate ``hz`` with an existing track or spawn a new one.
 
-        TODO(you):
-            1. Find the nearest existing track that matches ``hz.color``
-               and is within ``self.merge_radius`` (see ``_find_track``).
-            2. If none, append a new ``_Track`` using ``self._next_id``
-               and bump the counter.
-            3. Update the track: running-mean position weighted by
-               ``observations``, bump observation count, append
-               ``hz.confidence`` to ``history`` (cap length ~20),
-               recompute mean confidence.
-            4. If the track isn't yet confirmed but now has
-               ``observations >= self.min_obs``, mark it confirmed,
-               log it, and call ``self._publish_confirmed(track)``.
+        Policy (in order):
+          1. If there is at least one same-colour track within
+             ``self.merge_radius``, update the closest one.
+          2. Else if the same-colour track count is already at
+             ``self.max_per_color``, treat ``hz`` as part of the
+             closest same-colour track anyway -- domain knowledge says
+             there's only one cone of each colour, so an observation
+             far from the running mean is more likely to be a noisy
+             fusion than a genuine second object.
+          3. Else create a new track.
+        After updating, opportunistically merge any *other* same-colour
+        tracks into the one we just touched (cleans up legacy phantoms
+        from earlier in the run that ended up beyond merge_radius from
+        the now-converged track).
         """
-        raise NotImplementedError("TODO(you): implement detection -> track association.")
+        same_color = [t for t in self._tracks if t.color == hz.color]
+        x, y = hz.position.x, hz.position.y
 
-    def _find_track(self, color: str, x: float, y: float) -> Optional[_Track]:
-        """Return the nearest same-color track within merge_radius, else None.
+        if same_color:
+            closest = min(same_color, key=lambda t: math.hypot(t.x - x, t.y - y))
+            dist = math.hypot(closest.x - x, closest.y - y)
+            if dist <= self.merge_radius or len(same_color) >= self.max_per_color:
+                self._update_track(closest, hz)
+                # Opportunistic dedup: anything else of the same colour
+                # is a phantom we should fold in.
+                for t in list(same_color):
+                    if t is not closest:
+                        self._merge_tracks(into=closest, victim=t)
+                return
 
-        TODO(you): linear scan over ``self._tracks``; keep the closest
-        whose distance <= ``self.merge_radius``. For 3-5 tracks this is
-        trivially fast.
+        # New track.
+        track = _Track(
+            id=self._next_id,
+            color=hz.color,
+            category=hz.category,
+            x=x, y=y, z=hz.position.z,
+            confidence=hz.confidence,
+            observations=1,
+            history=[hz.confidence],
+        )
+        self._tracks.append(track)
+        self.get_logger().info(
+            f'New track {track.id} ({track.color}) at ({x:.2f}, {y:.2f})'
+        )
+        self._next_id += 1
+        if track.observations >= self.min_obs:
+            track.confirmed = True
+            self._publish_confirmed(track)
+
+    def _update_track(self, track: '_Track', hz: Hazard) -> None:
+        """Fold a fresh observation into a track using a correct running mean.
+
+        The previous code incremented ``observations`` before the mean
+        update, which mathematically over-weighted the prior position
+        and made tracks slowly *drift* away from the true cone. After
+        N samples the position became (N*obs_1 + obs_N+1)/(N+1) instead
+        of the actual mean. Once a track drifted past merge_radius, a
+        fresh observation at the true position would spawn a phantom
+        track -- exactly the symptom we saw in rviz.
         """
-        raise NotImplementedError("TODO(you): implement nearest-track lookup.")
+        n = track.observations
+        track.x = (track.x * n + hz.position.x) / (n + 1)
+        track.y = (track.y * n + hz.position.y) / (n + 1)
+        track.z = (track.z * n + hz.position.z) / (n + 1)
+        track.confidence = (track.confidence * n + hz.confidence) / (n + 1)
+        track.observations = n + 1
+        track.history.append(hz.confidence)
+        if len(track.history) > 20:
+            track.history.pop(0)
+        if not track.confirmed and track.observations >= self.min_obs:
+            track.confirmed = True
+            self.get_logger().info(
+                f'Track {track.id} ({track.color}) confirmed at '
+                f'({track.x:.2f}, {track.y:.2f}) after {track.observations} obs'
+            )
+            self._publish_confirmed(track)
+
+    def _merge_tracks(self, into: '_Track', victim: '_Track') -> None:
+        """Absorb ``victim`` into ``into`` (weighted by observation counts)."""
+        a, b = into.observations, victim.observations
+        total = a + b
+        if total <= 0:
+            return
+        into.x = (into.x * a + victim.x * b) / total
+        into.y = (into.y * a + victim.y * b) / total
+        into.z = (into.z * a + victim.z * b) / total
+        into.confidence = (into.confidence * a + victim.confidence * b) / total
+        into.observations = total
+        into.confirmed = into.confirmed or victim.confirmed
+        if victim in self._tracks:
+            self._tracks.remove(victim)
+        self.get_logger().info(
+            f'Merged phantom track {victim.id} -> {into.id} ({into.color})'
+        )
+
+
 
     # ------------------------------------------------------------------ output
     def _track_to_hazard(self, t: _Track) -> Hazard:
@@ -154,7 +236,7 @@ class HazardTracker(Node):
         TODO(you): this is a one-liner -- build the Hazard via
         ``self._track_to_hazard`` and publish on ``self.pub_conf``.
         """
-        raise NotImplementedError("TODO(you): publish a single confirmed hazard.")
+        self.pub_conf.publish(self._track_to_hazard(t))
 
     def _republish(self):
         """Timer: rebroadcast every confirmed track + refresh the RViz markers.
@@ -166,6 +248,13 @@ class HazardTracker(Node):
               ``MarkerArray``.
             - Publish the MarkerArray only if non-empty.
         """
+        markers = MarkerArray()
+        for track in self._tracks:
+            if track.confirmed:
+                markers.markers.append(self._make_marker(track, self.get_clock().now().to_msg()))
+                self._publish_confirmed(track)
+        if markers.markers:
+            self.pub_markers.publish(markers)
         return
 
     def _make_marker(self, t: _Track, stamp) -> Marker:
@@ -175,7 +264,22 @@ class HazardTracker(Node):
         scale ~0.3 x 0.3 x 0.5, positioned at (t.x, t.y, t.z + 0.25),
         colour from ``_COLOR_TO_RGBA``.
         """
-        raise NotImplementedError("TODO(you): implement confirmed-hazard marker.")
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = stamp
+        marker.ns = 'hazards_confirmed'
+        marker.id = t.id
+        marker.type = Marker.CYLINDER
+        marker.action = Marker.ADD
+        marker.pose.position.x = t.x
+        marker.pose.position.y = t.y
+        marker.pose.position.z = t.z + 0.25
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.3
+        marker.scale.y = 0.3
+        marker.scale.z = 0.5
+        marker.color = _COLOR_TO_RGBA.get(t.color, ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0))
+        return marker
 
     # ------------------------------------------------------------------ snapshot
     def _on_mapping_done(self, msg: Bool):
@@ -184,7 +288,11 @@ class HazardTracker(Node):
         TODO(you): if ``msg.data`` is True and ``self._snapshot_written``
         is still False, call ``self._write_snapshot()``.
         """
-        raise NotImplementedError("TODO(you): trigger the snapshot write.")
+        if msg.data and not self._snapshot_written:
+            self._write_snapshot()
+            self._snapshot_written = True
+            self.get_logger().info('Snapshot written')
+        return
 
     def _write_snapshot(self):
         """Serialize the confirmed track list to ``self.hazards_file`` as JSON.
@@ -198,7 +306,19 @@ class HazardTracker(Node):
               ``json.dump(payload, fh, indent=2)``.
             - Set ``self._snapshot_written = True`` and log.
         """
-        raise NotImplementedError("TODO(you): implement the JSON snapshot writer.")
+        if not self.hazards_file:
+            self.get_logger().error('No hazards_file; refusing to write snapshot.')
+            return
+        payload = {'hazards': []}
+        for track in self._tracks:
+            if track.confirmed:
+                payload['hazards'].append(track.__dict__)
+        os.makedirs(os.path.dirname(self.hazards_file), exist_ok=True)
+        with open(self.hazards_file, 'w') as f:
+            json.dump(payload, f, indent=2)
+        self._snapshot_written = True
+        self.get_logger().info(f'Snapshot written to {self.hazards_file}')
+        return
 
 
 def main(args=None):

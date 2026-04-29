@@ -73,4 +73,34 @@ class HSVDetector(Detector):
         ``if __name__ == '__main__':`` harness that feeds it a
         ``cv2.imread`` of a screenshot from Gazebo. No ROS needed.
         """
-        raise NotImplementedError("TODO(you): implement HSV threshold + contour detection.")
+        if image_bgr is None or image_bgr.size == 0:
+            return []
+
+        hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+        detections = []
+
+        for label, spans in self.ranges.items():
+            mask = np.zeros(image_bgr.shape[:2], dtype=np.uint8)
+            for lo, hi in spans:
+                mask2 = cv2.inRange(hsv, lo, hi)
+                cv2.bitwise_or(mask, mask2, mask)
+
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8), iterations=1)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8), iterations=2)
+            # cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+
+            countours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for contour in countours:
+              area = cv2.contourArea(contour)
+              if area < self.min_area:
+                continue
+              x, y, w, h = cv2.boundingRect(contour)
+              cx = x + w/2.0
+              cy = y + h/2.0
+              confidence = min(1.0, area / (4.0 * self.min_area))
+              # basically sclaing up tot satyration of 1.0 based on the area of the contour
+              detections.append(Detection(cx, cy, w, h, label, confidence))
+              
+         
+        return detections
+                
