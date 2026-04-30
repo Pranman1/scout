@@ -15,10 +15,7 @@ Pipeline:
                                      v
                             /hazards/raw + RViz markers
 
-The HSV side is unchanged. The depth side switched from monocular
-projection (which fought us at every step on cubes) to LiDAR fusion:
-camera tells us color + bearing, lidar tells us range. Each does what
-it's best at, and the failure modes barely overlap.
+
 
 You implement four algorithm methods (see TODOs):
     * ``_detection_bearing`` -- bbox -> bearing range in robot/lidar frame
@@ -29,12 +26,11 @@ You implement four algorithm methods (see TODOs):
 Everything else (subscriptions, image conversion, scan caching, TF
 lookup, marker building, publishing) is plumbed.
 """
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from posix import minor
 from typing import Dict, List, Optional, Tuple
-
 import numpy as np
 import rclpy
 import yaml
@@ -76,18 +72,9 @@ _COLOR_TO_RGBA = {
 @dataclass
 class _ScanCluster:
     """One contiguous chunk of LaserScan rays seeing the same object.
-
     Bearings are in the lidar's frame (positive = CCW / robot's left,
     zero = robot forward). Algorithm produces these, _match_cluster
     consumes them.
-
-    border_*_range carries the *range of the first valid ray just past
-    this cluster's edge* on that side, or NaN if the next ray was
-    invalid (no return / over max_range). The cone-shape filter
-    insists both border ranges are valid finite values significantly
-    farther than cluster.range -- a real cone has the wall behind it
-    at clearance, while wall slices at max_range have NaN borders and
-    pillar sub-clusters have borders at near-equal range.
     """
     bearing: float        # weighted mean angle [rad]
     range: float          # mean range [m]
@@ -108,36 +95,14 @@ class HazardDetector(Node):
         self.declare_parameter('camera_info_topic', '/camera/camera_info')
         self.declare_parameter('scan_topic', '/scan')
         self.declare_parameter('map_frame', 'map')
-        # TB3 burger lidar frame. Override for the real robot if needed.
         self.declare_parameter('lidar_frame', 'base_scan')
-        # Cached scan must be fresher than this when an image arrives.
         self.declare_parameter('max_scan_age_s', 0.3)
-        # Range jump (m) between consecutive rays that splits a cluster.
         self.declare_parameter('cluster_depth_jump_m', 0.20)
-        # Reject clusters whose physical width at their range exceeds
-        # this -- filters walls + big objects, keeps cone-sized things.
         self.declare_parameter('cluster_max_width_m', 0.30)
-        # Min rays per cluster. 1 lets faraway cones through; 2-3 is
-        # less noisy.
         self.declare_parameter('cluster_min_rays', 1)
-        # Pillar-rejection clearance. A border on either side must be
-        # EITHER (a) "no return / unverified" (NaN) -- consistent with
-        # a free-standing cone with nothing close behind/beside it --
-        # OR (b) at least this much farther than the cluster itself.
-        # If a border is a valid finite range BUT close to the
-        # cluster's range, we treat the cluster as part of a larger
-        # multi-bit object (the pillar) and reject it.
         self.declare_parameter('cone_clearance_m', 0.5)
-        # Wall-slice-at-max-range filter: reject any cluster within
-        # this margin of the lidar's max_range. The lidar's range
-        # limit clips far walls into thin "objects" sitting exactly
-        # at max_range, which is the clearest signature we have to
-        # kill. 0.4 m at max_range=3.5 -> reject anything beyond 3.1 m.
         self.declare_parameter('max_range_margin_m', 0.4)
-        # Max angular gap (deg) between detection bearing and cluster
-        # bearing for them to be associated.
         self.declare_parameter('bearing_match_tol_deg', 5.0)
-        # Sanity cap on how far we'll trust a fused detection.
         self.declare_parameter('max_range_m', 4.0)
 
         self.image_topic = self.get_parameter('image_topic').value
@@ -151,9 +116,7 @@ class HazardDetector(Node):
         self.min_rays = int(self.get_parameter('cluster_min_rays').value)
         self.cone_clearance = float(self.get_parameter('cone_clearance_m').value)
         self.max_range_margin = float(self.get_parameter('max_range_margin_m').value)
-        self.match_tol = math.radians(
-            float(self.get_parameter('bearing_match_tol_deg').value)
-        )
+        self.match_tol = math.radians(float(self.get_parameter('bearing_match_tol_deg').value))
         self.max_range = float(self.get_parameter('max_range_m').value)
 
         self.cfg = self._load_config()
@@ -162,7 +125,7 @@ class HazardDetector(Node):
         self.detector = build_detector(backend, det_cfg)
         self.color_to_category: Dict[str, str] = self.cfg.get('color_to_category', {})
 
-        # --------------- state ---------------------------------------
+
         self.bridge = CvBridge()
         self.intrinsics: Optional[np.ndarray] = None
         self.image_size: Optional[Tuple[int, int]] = None  # (W, H)
@@ -171,7 +134,7 @@ class HazardDetector(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.create_subscription(CameraInfo, self.info_topic, self._info_cb, SENSOR_QOS)
+        self.create_subscription(CameraInfo, self.info_topic, self.intrinsics_cb, SENSOR_QOS)
         self.create_subscription(Image, self.image_topic, self._image_cb, SENSOR_QOS)
         self.create_subscription(LaserScan, self.scan_topic, self._scan_cb, SENSOR_QOS)
 
@@ -183,71 +146,50 @@ class HazardDetector(Node):
             f"scan={self.scan_topic}, lidar_frame={self.lidar_frame})"
         )
 
-    # ------------------------------------------------------------------ config
+    # ------------------------------------------------------------------ callbacks brebv
     def _load_config(self) -> dict:
-        """Load ``hazard_params.yaml`` off disk. Plumbing only."""
         path = self.get_parameter('params_file').value
         if not path:
-            self.get_logger().warn('No params_file provided; using empty config.')
             return {}
         try:
-            with open(path) as fh:
-                return yaml.safe_load(fh) or {}
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().error(f'Failed to load {path}: {exc}')
+            with open(path) as file:
+                return yaml.safe_load(file) or {}
+        except Exception:
+            print("failed darn tootin")
             return {}
 
-    # ------------------------------------------------------------------ sub cbs
-    def _info_cb(self, msg: CameraInfo):
-        """Cache the 3x3 intrinsic matrix + image size on first message."""
+    def intrinsics_cb(self, msg: CameraInfo):
         if self.intrinsics is None:
             self.intrinsics = np.array(msg.k).reshape(3, 3)
             self.image_size = (msg.width, msg.height)
             k = self.intrinsics
-            self.get_logger().info(
-                f'Camera intrinsics received (fx={k[0, 0]:.1f}, fy={k[1, 1]:.1f}, '
-                f'cx={k[0, 2]:.1f}, cy={k[1, 2]:.1f}, hfov={math.degrees(self._camera_hfov()):.1f} deg)'
-            )
+            print(f"Camera intrinsics {k}")
 
     def _scan_cb(self, msg: LaserScan):
-        """Cache the latest LaserScan for fusion in _image_cb. Plumbing only."""
         self.latest_scan = msg
 
     def _image_cb(self, msg: Image):
-        """Process one frame: HSV -> for each detection, fuse with scan, publish.
+    #   image hsv processing brev
 
-        Plumbing only -- you write _fuse_to_map (and its helpers).
-        """
         if self.intrinsics is None or self.latest_scan is None:
             return
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         except Exception as e:
-            self.get_logger().warn(
-                f'Failed to convert image: {e}', throttle_duration_sec=5.0
-            )
             return
+
+
         detections = self.detector.detect(frame)
         if not detections:
             return
 
-        # Snapshot the scan up front so all detections in this frame fuse
-        # against the same range data (otherwise _scan_cb might update
-        # self.latest_scan mid-loop).
         scan = self.latest_scan
-        # Scan-vs-image desync: this is what actually matters for fusion
-        # correctness. If the scan was taken too far before/after the
-        # image, the robot may have rotated/moved between them and the
-        # cluster will land in the wrong map cell.
         img_ns = Time.from_msg(msg.header.stamp).nanoseconds
         scan_ns = Time.from_msg(scan.header.stamp).nanoseconds
-        desync_s = abs(img_ns - scan_ns) / 1e9
-        if desync_s > self.max_scan_age:
-            self.get_logger().warn(
-                f'Scan/image desync ({desync_s:.2f}s > {self.max_scan_age:.2f}s); '
-                f'skipping frame.',
-                throttle_duration_sec=5.0,
-            )
+        differ_s = abs(img_ns - scan_ns) / 1e
+
+        if self.max_scan_age < differ_s:
+            print("there is too much diff")
             return
 
         markers = MarkerArray()
@@ -265,111 +207,72 @@ class HazardDetector(Node):
             hazard.confidence = det.confidence
             self.pub_raw.publish(hazard)
             markers.markers.append(self._make_marker(idx, hazard, msg.header.stamp))
+
         if markers.markers:
             self.pub_markers.publish(markers)
 
     # ===================================================================
-    # ALGORITHM (TODO YOU)
+    # ALGORITHM (TODO)
     # ===================================================================
 
-    def _fuse_to_map(
-        self, det: Detection, scan: LaserScan, stamp
-    ) -> Optional[Point]:
+    def _fuse_to_map(self, det: Detection, scan: LaserScan, stamp) -> Optional[Point]:
+
         """Top-level: HSV detection + LiDAR scan -> 3D point in map frame.
-
         TODO(you): orchestrate the four steps:
-            1. Compute the detection's bearing range in the robot/lidar
-               frame (call ``self._detection_bearing(det)``). If it
-               returns None (clipped bbox), bail with None.
-            2. Cluster the lidar scan inside the bbox angular extent
-               (call ``self._cluster_scan(scan, left_bearing, right_bearing)``).
-               If the result is empty, bail with None.
-            3. Pick the cluster that best matches this detection's
-               bearing (call ``self._match_cluster(...)``). If nothing
-               matches within tolerance, bail with None.
-            4. Convert the cluster's polar (bearing, range) into a
-               cartesian point in the lidar frame:
-                    x_l = range * cos(bearing)
-                    y_l = range * sin(bearing)
-                    z_l = 0.0
-               Then TF that point into self.map_frame using
-               ``self._lidar_to_map(x_l, y_l, z_l, stamp)`` and return it.
-
-        Return None on any failure so _image_cb can just skip.
         """
-        # raise NotImplementedError("TODO(you): implement detection + scan fusion.")
 
         det_bearings = self._detection_bearing(det)
         if det_bearings is None:
             return None
-        # Cluster across the FRONT HALF of the lidar (+-pi/2). Camera
-        # FOV is +-31 deg, so cones are always well inside this window
-        # with +59 deg of lidar context on either side -- way more than
-        # enough for the bilateral cone-shape filter to find the wall
-        # behind. Going wider hits a wraparound problem at the lidar's
-        # angle-zero seam (cones straight ahead get bisected).
-        clusters = self._cluster_scan(scan, -math.pi / 2.0, +math.pi / 2.0)
+
+        thresh = math.pi / 2.0
+        clusters = self._cluster_scan(scan, -thresh, +thresh)
         if not clusters:
             return None
+
         cluster = self._match_cluster(det_bearings, clusters)
+      
         if cluster is None:
             return None
-        x_l = cluster.range * math.cos(cluster.bearing)
-        y_l = cluster.range * math.sin(cluster.bearing)
+
+        r = cluster.range
+        alpha = cluster.bearing
+
+        x_l = r * math.cos(alpha)
+        y_l = r * math.sin(alpha)
         z_l = 0.0
-        # Use SCAN time (not image time, not "now") for the TF lookup.
-        # The cluster's (x_l, y_l) is the cone's position in the lidar
-        # frame *as that frame was at scan.header.stamp*. Looking up the
-        # lidar->map transform at any other time misaligns the rotation
-        # and smears phantom positions across the map during rotation.
+        
         map_point = self._lidar_to_map(x_l, y_l, z_l, scan.header.stamp)
+
         return map_point
 
-    def _detection_bearing(
-        self, det: Detection
-    ) -> Optional[Tuple[float, float, float]]:
-        """Map detection bbox (image pixels) -> bearing range (lidar frame).
-
-        TODO(you):
-            1. From the bbox, compute three pixel columns:
-                 left   = det.cx - det.w / 2
-                 center = det.cx
-                 right  = det.cx + det.w / 2
-               If left or right is within 1-2 px of the image border
-               (use self.image_size), the bbox is clipped and the
-               bearing won't be reliable -- return None.
-            2. Convert each pixel column ``u`` to a *camera-frame*
+    def _detection_bearing(self, det: Detection) -> Optional[Tuple[float, float, float]]:
+        
+        """TODO: Map detection bbox (image pixels) -> bearing range (lidar frame).
+        Hints:
+            1. Convert each pixel column X to a *camera-frame*
                bearing using the pinhole model:
-                   bearing_cam = atan2(u - cx_intr, fx)
-               where cx_intr = self.intrinsics[0, 2] and fx =
-               self.intrinsics[0, 0]. Positive bearing_cam = right of
-               principal axis.
-            3. Convert each camera bearing to a *lidar-frame* bearing.
+            2. Convert each camera bearing to a *lidar-frame* bearing.
                On the TB3 burger, the camera principal axis points
                forward (+x in the robot frame) and so does the lidar's
                zero ray. Lidar yaw is positive CCW (left), opposite of
                camera u. So the conversion is just sign flip:
                    bearing_lidar = -bearing_cam
-               (If you ever swap to a robot where the camera and lidar
-               aren't co-aligned, replace this with a TF-based rotation
-               of a unit vector instead.)
-            4. Return (left_bearing, center_bearing, right_bearing) in
-               the lidar frame. NOTE: a left pixel becomes a positive
-               (left) lidar bearing, so left_bearing > right_bearing
-               after the sign flip. That's fine -- just keep track of
-               which is which when you pass them to _cluster_scan.
+            3. return left, center, right bearings in lidar frame.
         """
-        # raise NotImplementedError("TODO(you): implement bbox -> bearing range.")
 
-        left = det.cx - det.w / 2
-        center = det.cx
-        right = det.cx + det.w / 2
-        if left < 0 or right > self.image_size[0]:
+        left_pixel = det.cx - det.w / 2
+        center_pixel = det.cx
+        right_pixel = det.cx + det.w / 2
+        cx = self.intrinsics[0, 2]
+        fx = self.intrinsics[0, 0]
+
+        if left_pixel < 0 or right_pixel > self.image_size[0]:
             return None
             
-        bearing_cam_left = math.atan2(left - self.intrinsics[0, 2], self.intrinsics[0, 0])
-        bearing_cam_right = math.atan2(right - self.intrinsics[0, 2], self.intrinsics[0, 0])
-        bearing_cam_center = math.atan2(center - self.intrinsics[0, 2], self.intrinsics[0, 0])
+        bearing_cam_left = math.atan2(left_pixel - cx, fx)
+        bearing_cam_right = math.atan2(right_pixel - cx, fx)
+        bearing_cam_center = math.atan2(center_pixel - cx, fx)
 
         bearing_lidar_left = -bearing_cam_left
         bearing_lidar_right = -bearing_cam_right
@@ -377,12 +280,9 @@ class HazardDetector(Node):
 
         return (bearing_lidar_left, bearing_lidar_center, bearing_lidar_right)
 
-    def _cluster_scan(
-        self,
-        scan: LaserScan,
-        bearing_lo: float,
-        bearing_hi: float,
-    ) -> List[_ScanCluster]:
+    def _cluster_scan(self, scan: LaserScan, bearing_lo: float, bearing_hi: float,) -> List[_ScanCluster]:
+
+        
         """Segment the LaserScan inside [bearing_lo, bearing_hi] by depth jumps.
 
         TODO(you):
@@ -536,40 +436,20 @@ class HazardDetector(Node):
 
 
 
-    def _match_cluster(
-        self,
-        det_bearings: Tuple[float, float, float],
-        clusters: List[_ScanCluster],
-    ) -> Optional[_ScanCluster]:
-        """Pick the cluster best matching this detection.
+    def _match_cluster(self,det_bearings: Tuple[float, float, float],clusters: List[_ScanCluster], ) -> Optional[_ScanCluster]:
+        # TODO: 
 
-        TODO(you):
-            1. Simplest: pick the cluster whose mean bearing is closest
-               to det_bearings[1] (the detection's center bearing).
-               Use ``abs(cluster.bearing - center_bearing)``, with the
-               same wrap-fix from _cluster_scan if needed.
-            2. Reject if that closest cluster's bearing is more than
-               self.match_tol away from the detection center -- means
-               the lidar didn't actually see anything where the camera
-               points.
-            3. Optional bonus: prefer clusters whose mean bearing falls
-               INSIDE the bbox angular extent
-               (min(det_bearings[0], det_bearings[2]) ..
-                max(det_bearings[0], det_bearings[2])),
-               and only fall back to plain nearest if none do. Helps
-               when two cones are close in bearing.
-            4. Return the picked cluster, or None if nothing matches.
-        """
-        # raise NotImplementedError("TODO(you): implement detection -> cluster match.")
+        middle = det_bearings[1]
+        retval = None
+        min_dist = self.match_tol
 
-        best_cluster = None
-        best_dist = self.match_tol
-        for cluster in clusters:
-            dist = abs(cluster.bearing - det_bearings[1])
-            if dist < best_dist:
-                best_cluster = cluster
-                best_dist = dist
-        return best_cluster
+        for c in clusters:
+            dist = abs(c.bearing - middle)
+            if dist < min_dist:
+                retval = c
+                min_dist = dist  
+
+        return retval
 
     # ===================================================================
     # PLUMBING (DONE)

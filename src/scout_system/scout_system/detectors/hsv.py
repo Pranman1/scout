@@ -1,6 +1,5 @@
-"""HSV color-threshold hazard detector (SKELETON).
-
-Config block expected in ``hazard_params.yaml``::
+"""
+hazard_params.yaml:
 
     detector:
       backend: hsv
@@ -14,25 +13,17 @@ Config block expected in ``hazard_params.yaml``::
         blue:
           - {lo: [100, 150,   0], hi: [130, 255, 255]}
 
-Red gets two ranges because its hue wraps around 0 in OpenCV's 0-180
-HSV convention. Every color value is a *list of* ``{lo, hi}`` dicts,
-even if length 1 -- keeps the code path uniform.
-
-You implement ``detect``. The config-parsing part of ``__init__`` is
-already done because it's just dict/numpy plumbing that doesn't teach
-you anything about CV.
+ther initial ranges we are suing as rbakcet for the HSV valeus 
 """
-from __future__ import annotations
 
 from typing import Dict, List
-
 import cv2
 import numpy as np
-
 from .base import Detection, Detector
 
 
 class HSVDetector(Detector):
+
     def __init__(self, config: dict):
         cfg = config or {}
         self.min_area = int(cfg.get('min_area_px', 400))
@@ -68,10 +59,6 @@ class HSVDetector(Detector):
                     Simple confidence heuristic: saturate at 4 * min_area,
                     i.e. ``min(1.0, area / (4.0 * self.min_area))``.
             4. Return the accumulated list.
-
-        Testing tip: this class is pure OpenCV, so write a tiny
-        ``if __name__ == '__main__':`` harness that feeds it a
-        ``cv2.imread`` of a screenshot from Gazebo. No ROS needed.
         """
         if image_bgr is None or image_bgr.size == 0:
             return []
@@ -87,16 +74,18 @@ class HSVDetector(Detector):
 
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8), iterations=1)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8), iterations=2)
-            # cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
             countours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
             for contour in countours:
               area = cv2.contourArea(contour)
               if area < self.min_area:
                 continue
               x, y, w, h = cv2.boundingRect(contour)
-              cx = x + w/2.0
+
+              cx = x + w/2.0 
               cy = y + h/2.0
+
               confidence = min(1.0, area / (4.0 * self.min_area))
               # basically sclaing up tot satyration of 1.0 based on the area of the contour
               detections.append(Detection(cx, cy, w, h, label, confidence))

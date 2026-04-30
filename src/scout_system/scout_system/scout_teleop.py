@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
 """Standalone keyboard teleop for the scout (SKELETON).
-
-Instant-velocity style: pressing a key sets the target velocity directly
-(not an accumulator like turtlebot3_teleop_key). Releasing / pressing any
-other key stops the robot.
-
-Publishes ``geometry_msgs/Twist`` on ``/cmd_vel`` at whatever rate the
-loop in ``run()`` ticks. The plumbing (publisher, parameters, raw-mode
-keyboard read, main()) is provided; you write the key -> Twist mapping
-loop in ``run()``.
-
-Usage::
-
-    source ~/turtle_test/install/setup.bash
-    source ~/scout_ws/install/setup.bash
-    export TURTLEBOT3_MODEL=burger_cam
-    ros2 run scout_system scout_teleop
-
-Reuse note: once this works, the same loop body (plus a 'p' -> save_map
-branch) is what ``manual_mapper.run()`` needs. Copy-paste or factor into
-a shared helper -- your call.
 """
 import select
 import sys
@@ -71,40 +51,8 @@ class ScoutTeleop(Node):
         return key
 
     def run(self):
-        """Main teleop loop: read keys, publish Twists.
+        """TODO: Main teleop loop: read keys, publish Twists."""
 
-        TODO(you):
-            - Print ``MSG`` once as the banner (so the user knows the key
-              bindings when the node starts).
-            - Loop while ``rclpy.ok()``:
-                * ``key = self._get_key()``
-                * Build a fresh ``Twist()`` each iteration (do NOT carry
-                  state across iterations -- that would re-create the
-                  accumulator behavior you're trying to avoid).
-                * Map keys -> velocities:
-                    'w' -> linear.x = +self.speed
-                    'x' -> linear.x = -self.speed
-                    'a' -> angular.z = +self.turn
-                    'd' -> angular.z = -self.turn
-                    ' ' / 's' / '' (no key) -> leave Twist at zero
-                    '\\x03' (Ctrl-C) -> break out of the loop
-                * Publish the Twist every iteration so the robot stops
-                  automatically when no key is held.
-            - In a ``finally`` block, publish one final zero Twist so the
-              robot doesn't coast after the node exits.
-
-        Edge cases to think about:
-            - What happens if the user presses an unrecognized key?
-              (Answer: same as no key -- zero Twist, robot stops. The
-              "else" branch handles this implicitly if you build a fresh
-              Twist every iteration.)
-            - Should diagonal motion be allowed (w+a simultaneously)?
-              Terminal keyboard reads are single-char, so you get one at
-              a time anyway -- diagonals aren't really possible here
-              without a more sophisticated input method. Accept this
-              limitation for now.
-        """
-        # raise NotImplementedError("TODO(you): implement the key -> Twist loop.")
         print(MSG)
         while rclpy.ok():
             key = self._get_key()

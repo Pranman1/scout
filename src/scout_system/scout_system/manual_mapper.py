@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
 """Manual WASD teleop + on-demand map save (SKELETON).
-
-Opens in its own xterm via the launch file. You implement the key ->
-Twist mapping in ``run()``. 'p' should trigger a map save; the save
-helper is already provided for you.
-
-Parameter contract: ``map_path`` is a bare path *without* a ``.yaml``
-suffix -- nav2_map_server adds both ``.yaml`` and ``.pgm`` when it
-writes.
 """
 import os
 import select
@@ -75,21 +67,7 @@ class ManualMapper(Node):
         return key
 
     def run(self):
-        """Main teleop loop: read keys, publish Twists, handle save / quit.
-
-        TODO(you):
-            - Print ``MSG`` once as the banner.
-            - Loop while ``rclpy.ok()``:
-                * ``key = self._get_key()``
-                * Map 'w'/'x' -> linear x = +/- self.speed, 'a'/'d' ->
-                  angular z = +/- self.turn, ' '/'s' -> zero (stop),
-                  'p' -> ``self.save_map()``, '\\x03' (Ctrl-C) -> break.
-                * Publish a ``Twist`` every iteration (even zeros, so the
-                  robot stops when no key is held).
-            - In a ``finally`` block, publish one final zero ``Twist`` so
-              the robot doesn't keep coasting after the node exits.
-        """
-        # raise NotImplementedError("TODO(you): implement the WASD teleop loop.")
+        
         print(MSG)
         while rclpy.ok():
             key = self._get_key()
