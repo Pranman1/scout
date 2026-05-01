@@ -28,7 +28,6 @@ class HSVDetector(Detector):
         cfg = config or {}
         self.min_area = int(cfg.get('min_area_px', 400))
         raw: Dict[str, list] = cfg.get('hsv', {})
-
         self.ranges: Dict[str, List[tuple]] = {}
         for label, spans in raw.items():
             prepared = []
@@ -40,25 +39,6 @@ class HSVDetector(Detector):
 
     def detect(self, image_bgr: np.ndarray) -> List[Detection]:
         """Segment each configured color and return one Detection per blob.
-
-        TODO(you):
-            1. Guard: return [] if ``image_bgr`` is None or empty.
-            2. Convert BGR -> HSV once (``cv2.cvtColor(..., COLOR_BGR2HSV)``).
-            3. For each label in ``self.ranges``:
-                 a. OR together a mask over every (lo, hi) span with
-                    ``cv2.inRange`` -- this handles red's hue wrap.
-                 b. Clean speckle with a small open + close
-                    (``cv2.morphologyEx`` with a 3x3 kernel; ~1 open,
-                    ~2 close iterations is a good starting point).
-                 c. ``cv2.findContours(mask, RETR_EXTERNAL,
-                    CHAIN_APPROX_SIMPLE)``.
-                 d. For each contour: skip if ``cv2.contourArea < self.min_area``.
-                    Otherwise grab ``cv2.boundingRect`` and emit a
-                    ``Detection`` with the box center (cx, cy), width,
-                    height, label, and a confidence in [0, 1].
-                    Simple confidence heuristic: saturate at 4 * min_area,
-                    i.e. ``min(1.0, area / (4.0 * self.min_area))``.
-            4. Return the accumulated list.
         """
         if image_bgr is None or image_bgr.size == 0:
             return []

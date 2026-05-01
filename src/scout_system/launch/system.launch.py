@@ -235,7 +235,7 @@ def generate_launch_description():
             # 60 ticks at tick_period=1.0s = 60 s grace, which comfortably
             # covers warm-up. Bring it back down once exploration starts
             # converging if you want a snappier finish.
-            'max_consecutive_empty': 60,
+            'max_consecutive_empty': 10,
             # scout flow needs to keep running to transition into mission;
             # pure 'map' mode can shut down at the end if you want, but we
             # leave it up so Ctrl-C always belongs to you.
@@ -269,7 +269,9 @@ def generate_launch_description():
             'map_frame': 'map',
             # All other tuning (depth-jump, cluster width, bearing tol, etc.)
             # lives in hazard_detector.py defaults; override here if needed.
-            'max_range_m': 3.5,
+            # 3.1 m collapses the lidar's 3.5 m hardware limit and the
+            # 0.4 m wall-ghost trust margin into a single trust threshold.
+            'max_range_m': 3.1,
             # Require >= 2 lidar rays per cluster -- single-ray clusters
             # are usually noise. Cones beyond ~3 m subtend 1 ray only,
             # so this also caps effective range; lower to 1 if you need
@@ -278,17 +280,6 @@ def generate_launch_description():
             # Cone is 14 cm wide. 0.22 m gives ~5 cm slack for ray noise
             # while still cleanly rejecting the 0.5 m pillar.
             'cluster_max_width_m': 0.22,
-            # If a cluster has a VALID finite border on either side,
-            # that border range must be at least this much farther than
-            # the cluster (otherwise the neighbour is part of the same
-            # object -- pillar sub-cluster). NaN borders (no return /
-            # wall beyond max_range) are allowed because cones in the
-            # middle of an arena often have nothing visible beside them.
-            'cone_clearance_m': 0.6,
-            # Reject any cluster within this much of the lidar's hard
-            # range limit -- those are wall slices clipped by the
-            # range limit. 0.4 m at max_range=3.5 -> reject > 3.1 m.
-            'max_range_margin_m': 0.4,
         }],
         condition=_cond(needs_perception_ex),
     )

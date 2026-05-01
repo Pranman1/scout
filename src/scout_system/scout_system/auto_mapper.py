@@ -1,53 +1,20 @@
 #!/usr/bin/env python3
 """Bounded frontier explorer + map saver (SKELETON).
+based on explorlite but made to suit our needs, za pipeline ia as follows:
 
-Replaces explore_lite. Pipeline:
-
-    /map (OccupancyGrid)            ROS topic
-        |
-        v
-    detect frontiers                YOU
-    filter by polygon bound         (plumbing helper provided)
-    select best target              YOU
-        |
-        v
-    Nav2 NavigateToPose action      (plumbing helper provided)
-        |
-        v
-    repeat until no targets in bound
-        |
-        v
-    save map + publish              (plumbing helpers provided)
-    /scout/mapping_complete = True
-
-You implement three methods (see TODOs):
-  * ``_detect_frontiers(grid)`` -- list of Frontier from /map
-  * ``_select_target(frontiers, robot_xy)`` -- pick one Frontier
-  * ``_tick()`` -- FSM step (states defined below)
-
-Everything else (TF lookup, polygon check, action client send/result,
-map save, RViz markers) is already wired up.
-
-Dependencies::
-
-    sudo apt install python3-shapely
+map topic -> detect frontiers -> filter by polygon bound -> pick best frontier -> send goal to nav -> repeat till no trgets -> save map  + bub lish mapping complete -> publish final map 
 """
 import os
 import subprocess
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-
+import math
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.node import Node
-from rclpy.qos import (
-    DurabilityPolicy,
-    QoSProfile,
-    ReliabilityPolicy,
-)
-
+from rclpy.qos import (DurabilityPolicy,QoSProfile,ReliabilityPolicy,)
 import tf2_ros
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Point as PointMsg, Twist
@@ -61,6 +28,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 from scipy.ndimage import binary_dilation, label
 import numpy as np
 import scipy.ndimage
+from rcl_interfaces.srv import SetParameters
+from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 class State(Enum):
     INIT = auto()         # waiting for first /map
@@ -83,71 +52,52 @@ class AutoMapper(Node):
     def __init__(self):
         super().__init__('auto_mapper')
 
-        # ---------- params -----------------------------------------------
+        # params brev -
         self.declare_parameter('map_path', '')
         self.declare_parameter('shutdown_on_complete', False)
         self.declare_parameter('tick_period', 1.0)
         self.declare_parameter('robot_frame', 'base_link')
         self.declare_parameter('map_frame', 'map')
-        # How many back-to-back empty frontier detections before we declare
-        # the map done. Bigger = more tolerant to transient empty passes
-        # after a nav failure, smaller = exits faster on a truly done map.
         self.declare_parameter('max_consecutive_empty', 3)
-        # Default polygon: matches the sim arena allowed region we sized
-        # earlier (south-west biased to keep the dock-side spawn clear).
-        # For the real lab, override this in the launch file.
         self.declare_parameter(
             'bounds_polygon',
             # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
-            # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
-            [-3.0, -3.0, 3.0, -3.0, 3.0, 3.0, -3.0, 3.0],
-        )
+            [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
+            # [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
+            )
 
         self.map_path = self.get_parameter('map_path').value
-        self.shutdown_on_complete = bool(
-            self.get_parameter('shutdown_on_complete').value
-        )
+        self.shutdown_on_complete = bool(self.get_parameter('shutdown_on_complete').value)
         self.tick_period = float(self.get_parameter('tick_period').value)
         self.robot_frame = self.get_parameter('robot_frame').value
         self.map_frame = self.get_parameter('map_frame').value
-        self.max_consecutive_empty = int(
-            self.get_parameter('max_consecutive_empty').value
-        )
+        self.max_consecutive_empty = int(self.get_parameter('max_consecutive_empty').value)
 
         flat = list(self.get_parameter('bounds_polygon').value)
         if len(flat) < 6 or len(flat) % 2 != 0:
-            raise ValueError(
-                f'bounds_polygon needs >=3 vertices as flat xy list; '
-                f'got {len(flat)} elements.'
-            )
+            raise ValueError("not correct polygon pts formarat")
+
         verts = list(zip(flat[0::2], flat[1::2]))
         self.polygon = Polygon(verts)
 
-        # ---------- state ------------------------------------------------
+        # state you knwo what im sayin brev -
+
         self.state = State.INIT
-        self.latest_map = None             # type: OccupancyGrid | None
-        self.current_target = None         # type: Frontier | None
+        self.latest_map = None          
+        self.current_target = None      
         self.nav_in_progress = False
         self.nav_succeeded = False
         self.nav_started_t = 0.0
         self.blacklist = set()
-        # Counter of back-to-back empty frontier detections; reset whenever
-        # we actually pick a target. Only declares COMPLETE once this hits
-        # self.max_consecutive_empty, so one flaky pass doesn't end the run.
         self.consecutive_empty = 0
-        self.returning_home = False
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
 
-        # ---------- ROS plumbing -----------------------------------------
-        # SLAM publishes /map as latched (TRANSIENT_LOCAL); match it.
+        # ---------- ROS plumbing 
         map_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
-        self.create_subscription(
-            OccupancyGrid, '/map', self._map_cb, map_qos
-        )
+        self.create_subscription(OccupancyGrid, '/map', self._map_cb, map_qos)
 
         latched_qos = QoSProfile(
             depth=1,
@@ -166,61 +116,42 @@ class AutoMapper(Node):
         self.final_map_pub = self.create_publisher(
             OccupancyGrid, '/scout/final_map', latched_qos
         )
-
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.nav_client = ActionClient(
             self, NavigateToPose, 'navigate_to_pose'
         )
-
         self.create_timer(self.tick_period, self._tick)
         self.create_timer(2.0, self._publish_polygon_marker)
-
         self.get_logger().info('Auto Mapper ready')
         self.get_logger().info(f'  map_path        = {self.map_path}')
         self.get_logger().info(f'  bounds polygon  = {len(verts)} vertices')
         self.get_logger().info(f'  tick_period     = {self.tick_period}s')
 
-    # ===================================================================
-    # ALGORITHM (TODO YOU)
-    # ===================================================================
+    # algorithm's brev 
+
 
     def _detect_frontiers(self, grid):
         """Find frontier clusters in the occupancy grid.
-
-        TODO(you):
-            - ``data = np.array(grid.data).reshape(grid.info.height,
-              grid.info.width)`` -- values are -1 (unknown), 0 (free),
-              100 (occupied).
-            - Find FREE cells that have at least one UNKNOWN 4-neighbor.
-              Those are frontier cells.
-            - Cluster contiguous frontier cells (e.g.
-              ``scipy.ndimage.label`` with a 4- or 8-connectivity mask).
-            - For each cluster:
-                * compute centroid in grid coords (mean of indices)
-                * convert to world coords via ``self._grid_to_world``
-                * filter out clusters whose centroid is OUTSIDE
-                  ``self._in_polygon``
-                * skip very small clusters (e.g. < 5 cells -- noise)
-            - Return a list of ``Frontier(x, y, size)`` in world coords.
-            - Optional: call ``self._publish_frontier_markers(result)``
-              at the end so RViz shows them.
         """
         # raise NotImplementedError("TODO(you): implement frontier detection.")
 
         data = np.array(grid.data).reshape(grid.info.height, grid.info.width)
 
-        # I dotnf uly get thsi it jsut kind eorked revist 
+        # I dotnf uly get thsi it jsut kind eorked revist - we just made some masks, 
+        # from what i gather first mask shoidl be to find all the non wall reifons, then teh labels gives us the areas of non walls, 
 
         robot_xy = self._get_robot_xy()
+        structure = np.array([[True, True, True],[True, True, True],[True, True, True]])
+
         if robot_xy is not None:
             non_wall = (data != 100)
-            nw_labels, _ = scipy.ndimage.label(
-                non_wall, structure=np.ones((3, 3), bool)
-            )
-            rc, rr = self._world_to_grid(robot_xy[0], robot_xy[1], grid.info)
-            room_id = nw_labels[rr, rc]
+            nw_labels, num = scipy.ndimage.label(non_wall, structure=structure)
+
+            gridx, gridy = self._world_to_grid(robot_xy[0], robot_xy[1], grid.info)
+
+            room_id = nw_labels[gridx, gridy]
             if room_id != 0:
                 data[(nw_labels != 0) & (nw_labels != room_id)] = 100
 
@@ -228,9 +159,9 @@ class AutoMapper(Node):
         free_mask = data == 0
         unknown_mask = data == -1
         frontier_mask = free_mask & binary_dilation(unknown_mask)
-        structure = np.ones((3, 3),dtype=bool)
         unknown_labels, num_unknown = scipy.ndimage.label(unknown_mask, structure=structure)
         unknown_sizes = np.bincount(unknown_labels.ravel())
+        
         # the above bit is liek b lob 1 has 4 then blob2 has 3 et index 2 is blob 2
 
 
@@ -250,7 +181,7 @@ class AutoMapper(Node):
                     if size > 2 and not self._is_in_blacklist(x, y):
                       cluster_mask = labels == label_id
                       neighbors = binary_dilation(cluster_mask)
-                      touched_ids = np.unique(unknown_labels[neighbors&unknown_mask])#
+                      touched_ids = np.unique(unknown_labels[neighbors&unknown_mask])
                       touched_ids = touched_ids[touched_ids != 0]
                       mass = int(unknown_sizes[touched_ids].sum())
                       if mass < 5:
@@ -276,52 +207,26 @@ class AutoMapper(Node):
 
     def _postprocess_grid(self, grid, threshold=5, max_iters=2):
         """Majority-vote cleanup of unknown cells.
-
-        For each unknown pixel, look at its 8 neighbors:
-          - If >= ``threshold`` of them are FREE, flip the pixel to free.
-          - If >= ``threshold`` of them are WALL, flip the pixel to wall.
-        Iterate up to ``max_iters`` times so fixes can propagate (an
-        unknown surrounded by 5 free + 3 unknown might pass on iter 2).
         """
-        data = np.array(grid.data, dtype=np.int8).reshape(
-            grid.info.height, grid.info.width
-        )
-        # 3x3 kernel that counts neighbors only (centre = 0).
-        kernel = np.array([[1, 1, 1],
-                           [1, 0, 1],
-                           [1, 1, 1]], dtype=int)
+        data = np.array(grid.data, dtype=np.int8).reshape(grid.info.height, grid.info.width)
+        kernel = np.array([[1, 1, 1],[1, 0, 1],[1, 1, 1]], dtype=int)
 
-        for _ in range(max_iters):
+        for i in range(max_iters):
             unknown = (data == -1)
             if not unknown.any():
                 break
             # free_mask = (data == 0).astype(int)
             wall_mask = (data == 100).astype(int)
-            # the above bit is like a convolution mask that counts the number of free or wall neighbors
-            # free_neighbors = scipy.ndimage.convolve(
-            #     free_mask, kernel, mode='constant', cval=0
-            # )
-            wall_neighbors = scipy.ndimage.convolve(
-                wall_mask, kernel, mode='constant', cval=0
-            )
-            # make_free = unknown & (free_neighbors >= threshold) & (wall_neighbors == 0)
+            # the above bit is like a convoolution mask that counts the number of free or wall neighbors
+    
+            wall_neighbors = scipy.ndimage.convolve(wall_mask, kernel, mode='constant', cval=0)
             make_wall = unknown & (wall_neighbors >= threshold)
             if not make_wall.any():
                 break
             # data[make_free] = 0
             data[make_wall] = 100  
 
-        # --- Seal off pockets disconnected from the robot's room. ---
-        robot_xy = self._get_robot_xy()
-        if robot_xy is not None:
-            non_wall = (data != 100)
-            nw_labels, _ = scipy.ndimage.label(
-                non_wall, structure=np.ones((3, 3), bool)
-            )
-            rc, rr = self._world_to_grid(robot_xy[0], robot_xy[1], grid.info)
-            room_id = nw_labels[rr, rc]
-            if room_id != 0:
-                data[(nw_labels != 0) & (nw_labels != room_id)] = 100
+
 
         res = grid.info.resolution
         ox = grid.info.origin.position.x
@@ -334,7 +239,7 @@ class AutoMapper(Node):
 
         inside = shapely.vectorized.contains(self.polygon, X, Y)
         data[~inside] = 100
-        data[(data == -1) & inside] = 100  # or 0, whichever is safer for you
+        data[(data == -1) & inside] = 100  
 
         out = OccupancyGrid()
         out.header = grid.header
@@ -343,30 +248,25 @@ class AutoMapper(Node):
         return out
 
     def _select_target(self, frontiers, robot_xy):
-        """Pick the best frontier to navigate to.
-
-        TODO(you):
-            - Simplest: nearest by Euclidean distance to ``robot_xy``.
-            - Better: score = a*size - b*distance, pick max.
-            - Return the chosen Frontier, or None if list is empty.
+        """Pick the best frontier to navigate to
         """
         # raise NotImplementedError("TODO(you): implement target selection.")
 
         if not frontiers:
             return None
 
-        max_score = -float('inf')
+        max_score = -float(1000000000)
         best_frontier = None
 
-        for frontier in frontiers:
-            dx = frontier.x - robot_xy[0]
-            dy = frontier.y - robot_xy[1]
+        for front in frontiers:
+            dx = front.x - robot_xy[0]
+            dy = front.y - robot_xy[1]
             distance = (dx * dx + dy * dy) ** 0.5
 
-            score = frontier.size - 15 * distance + 1 * frontier.mass
+            score = front.size - 15 * distance + 1 * front.mass
             if score > max_score:
                 max_score = score
-                best_frontier = frontier
+                best_frontier = front
 
         return best_frontier
 
@@ -374,20 +274,8 @@ class AutoMapper(Node):
 
     def _tick(self):
         """One step of the explorer FSM. Called every ``tick_period``.
-
-        TODO(you): wire the state machine. Suggested skeleton:
-
-
-        Edge cases worth thinking about:
-            - Nav2 fails on a target. Retry once? Blacklist and try
-              another? Just go back to PICK_TARGET? (Easiest: latter.)
-            - latest_map updates while NAVIGATING. Do you re-pick? Or
-              wait for current goal to finish? (Easiest: wait.)
-            - No frontiers found on first PICK_TARGET (robot starts in
-              fully-mapped area). COMPLETE immediately is fine.
         """
         # raise NotImplementedError("TODO(you): implement the FSM tick.")
-
 
         if self.state == State.INIT:
             if self.latest_map is not None:
@@ -401,21 +289,28 @@ class AutoMapper(Node):
             target = self._select_target(frontiers, robot_xy)
             if target is None:
                 self.consecutive_empty += 1
-                self.get_logger().warn(
-                    f'No frontiers found '
-                    f'({self.consecutive_empty}/{self.max_consecutive_empty}).'
-                )
+                self.get_logger().warn(f"{self.consecutive_empty} empty found")
+
                 if self.consecutive_empty >= self.max_consecutive_empty:
                     self._save_map()
                     self._publish_complete()
-                    self.get_logger().info(
-                        f'Stable empty for {self.consecutive_empty} ticks. '
-                        'Saving and completing map.'
-                    )
-                    self.returning_home = True
-                    self._send_nav_goal(0.0, 0.0)  # return to start pose
+
+                    client = self.create_client(SetParameters, '/controller_server/set_parameters')
+                    if client.wait_for_service(timeout_sec=2.0):
+                        req = SetParameters.Request()
+                        req.parameters = [
+                            Parameter(name='goal_checker.xy_goal_tolerance',
+                                    value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.05)),
+                            Parameter(name='goal_checker.yaw_goal_tolerance',
+                                    value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.05)),
+                            Parameter(name='FollowPath.xy_goal_tolerance',
+                                    value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.05)),    
+                        ]
+                        client.call_async(req)
+
+
+                    self._send_nav_goal(0.0, 0.0)
                     self.state = State.COMPLETE
-                # else stay in PICK_TARGET; map may update before next tick.
             else:
                 self.consecutive_empty = 0
                 if self._send_nav_goal(target.x, target.y):
@@ -423,9 +318,7 @@ class AutoMapper(Node):
                     self.state = State.NAVIGATING
 
         elif self.state == State.NAVIGATING:
-
             if not self.nav_in_progress and not self.nav_succeeded:
-                self.get_logger().warn('Nav goal failed. Retrying...')
                 self.blacklist.add((self.current_target.x, self.current_target.y))
                 self.state = State.PICK_TARGET
             if not self.nav_in_progress:
@@ -434,13 +327,9 @@ class AutoMapper(Node):
         elif self.state == State.COMPLETE:
             if self.shutdown_on_complete:
                 rclpy.shutdown()
-            # else: stay in COMPLETE (terminal, no-op forever)
         else:
             self.get_logger().error(f'Unknown state: {self.state}')
-
-    # ===================================================================
-    # PLUMBING (DONE)
-    # ===================================================================
+# plumbing brev - helper funcs
 
     def _map_cb(self, msg):
         self.latest_map = msg
@@ -448,13 +337,9 @@ class AutoMapper(Node):
     def _get_robot_xy(self):
         """Look up robot's (x, y) in map frame via TF. Returns None on failure."""
         try:
-            tf = self.tf_buffer.lookup_transform(
-                self.map_frame, self.robot_frame, rclpy.time.Time(),
-                timeout=Duration(seconds=0.5),
-            )
+            tf = self.tf_buffer.lookup_transform(self.map_frame, self.robot_frame, rclpy.time.Time(),timeout=Duration(seconds=0.5), )
             return (tf.transform.translation.x, tf.transform.translation.y)
         except TransformException as e:
-            self.get_logger().warn(f'TF lookup failed: {e}')
             return None
 
     def _world_to_grid(self, wx, wy, info):
@@ -471,12 +356,7 @@ class AutoMapper(Node):
         return self.polygon.contains(Point(x, y))
 
     def _send_nav_goal(self, x, y, yaw=0.0):
-        """Fire-and-forget Nav2 goal. Returns False if server not ready.
-
-        On goal completion, ``_on_goal_result`` clears
-        ``nav_in_progress`` and sets ``nav_succeeded``. The FSM polls
-        these flags.
-        """
+    
         if not self.nav_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().warn('Nav2 action server not ready.')
             return False
@@ -486,7 +366,6 @@ class AutoMapper(Node):
         goal.pose.header.stamp = self.get_clock().now().to_msg()
         goal.pose.pose.position.x = float(x)
         goal.pose.pose.position.y = float(y)
-        # yaw=0 for now; FSM can pick a smarter heading if you want.
         goal.pose.pose.orientation.w = 1.0
 
         self.nav_in_progress = True
@@ -514,44 +393,17 @@ class AutoMapper(Node):
         self.nav_succeeded = (status == GoalStatus.STATUS_SUCCEEDED)
         if not self.nav_succeeded:
             self.get_logger().warn(f'Nav goal ended with status={status}')
-        elif self.returning_home:
-            self.returning_home = False
-            self._align_to_zero()
+            
 
-    def _align_to_zero(self):
-        """Spin in place until yaw in map frame is near 0."""
-        import math
-        deadline = time.time() + 8.0
-        while time.time() < deadline and rclpy.ok():
-            try:
-                tf = self.tf_buffer.lookup_transform(
-                    self.map_frame, self.robot_frame, rclpy.time.Time(),
-                    timeout=Duration(seconds=0.2),
-                )
-            except TransformException:
-                break
-            q = tf.transform.rotation
-            yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
-            if abs(yaw) < 0.02:  # ~1 degree
-                break
-            twist = Twist()
-            twist.angular.z = max(-0.4, min(0.4, -1.5 * yaw))
-            self.cmd_vel_pub.publish(twist)
-            time.sleep(0.05)
-        self.cmd_vel_pub.publish(Twist())
-        self.get_logger().info('Aligned to start orientation.')
 
     def _save_map(self):
         if not self.map_path:
-            self.get_logger().error('No map_path; refusing to save.')
             return False
         if self.latest_map is None:
-            self.get_logger().error('No /map received yet; cannot save.')
             return False
 
         cleaned = self._postprocess_grid(self.latest_map)
         self.final_map_pub.publish(cleaned)
-        # Give map_saver_cli a moment to subscribe + receive the latched msg.
         time.sleep(0.5)
 
         os.makedirs(os.path.dirname(self.map_path), exist_ok=True)
@@ -563,7 +415,7 @@ class AutoMapper(Node):
                  '-t', '/scout/final_map'],
                 check=True, capture_output=True, text=True, timeout=30,
             )
-            self.get_logger().info('Map saved.')
+            self.get_logger().info('Map sav')
             return True
         except subprocess.TimeoutExpired:
             self.get_logger().error('map_saver_cli timed out.')
@@ -577,8 +429,7 @@ class AutoMapper(Node):
 
     def _publish_polygon_marker(self):
         m = Marker()
-        m.header = Header(frame_id=self.map_frame,
-                          stamp=self.get_clock().now().to_msg())
+        m.header = Header(frame_id=self.map_frame,stamp=self.get_clock().now().to_msg())
         m.ns = 'bounds'
         m.id = 0
         m.type = Marker.LINE_STRIP
@@ -593,7 +444,6 @@ class AutoMapper(Node):
     def _publish_frontier_markers(self, frontiers):
         """Optional helper: visualize candidate frontiers in RViz."""
         arr = MarkerArray()
-        # Clear old frontier markers first.
         clear = Marker()
         clear.header.frame_id = self.map_frame
         clear.ns = 'frontiers'
@@ -601,8 +451,7 @@ class AutoMapper(Node):
         arr.markers.append(clear)
         for i, f in enumerate(frontiers):
             m = Marker()
-            m.header = Header(frame_id=self.map_frame,
-                              stamp=self.get_clock().now().to_msg())
+            m.header = Header(frame_id=self.map_frame, stamp=self.get_clock().now().to_msg())
             m.ns = 'frontiers'
             m.id = i
             m.type = Marker.SPHERE
@@ -610,9 +459,6 @@ class AutoMapper(Node):
             m.pose.position.x = f.x
             m.pose.position.y = f.y
             m.pose.position.z = 0.05
-            # Sqrt-scale mass into a diameter; clamp to [0.1m, 0.6m] so
-            # tiny frontiers are still visible and giant ones don't dwarf
-            # the map. Tweak the 0.02 multiplier for taste.
             diameter = max(0.1, min(0.6, (f.mass ** 0.5) * 0.02))
             m.scale.x = m.scale.y = m.scale.z = diameter
             m.color = ColorRGBA(r=1.0, g=0.5, b=0.0, a=0.9)
