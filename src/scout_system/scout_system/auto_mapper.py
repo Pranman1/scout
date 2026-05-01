@@ -36,7 +36,8 @@ class State(Enum):
     PICK_TARGET = auto()  # detect frontiers, pick one, send nav goal
     NAVIGATING = auto()   # waiting for Nav2 to finish current goal
     COMPLETE = auto()     # map saved, /scout/mapping_complete latched True
-    FAILED = auto()       # unrecoverable; you decide when to enter this
+    FAILED = auto()     
+    RETURNING_HOME = auto()  # unrecoverable; you decide when to enter this
 
 
 @dataclass
@@ -62,8 +63,8 @@ class AutoMapper(Node):
         self.declare_parameter(
             'bounds_polygon',
             # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
-            [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
-            # [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
+            # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
+            [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
             )
 
         self.map_path = self.get_parameter('map_path').value
@@ -151,7 +152,7 @@ class AutoMapper(Node):
 
             gridx, gridy = self._world_to_grid(robot_xy[0], robot_xy[1], grid.info)
 
-            room_id = nw_labels[gridx, gridy]
+            room_id = nw_labels[gridy, gridx]
             if room_id != 0:
                 data[(nw_labels != 0) & (nw_labels != room_id)] = 100
 
@@ -293,7 +294,8 @@ class AutoMapper(Node):
 
                 if self.consecutive_empty >= self.max_consecutive_empty:
                     self._save_map()
-                    self._publish_complete()
+
+                    # below is boilerplae i pulled form online
 
                     client = self.create_client(SetParameters, '/controller_server/set_parameters')
                     if client.wait_for_service(timeout_sec=2.0):
@@ -310,7 +312,7 @@ class AutoMapper(Node):
 
 
                     self._send_nav_goal(0.0, 0.0)
-                    self.state = State.COMPLETE
+                    self.state = State.RETURNING_HOME
             else:
                 self.consecutive_empty = 0
                 if self._send_nav_goal(target.x, target.y):
@@ -323,7 +325,10 @@ class AutoMapper(Node):
                 self.state = State.PICK_TARGET
             if not self.nav_in_progress:
                 self.state = State.PICK_TARGET
-
+        elif self.state == State.RETURNING_HOME:
+            if not self.nav_in_progress:
+                self.state = State.COMPLETE
+                self._publish_complete()
         elif self.state == State.COMPLETE:
             if self.shutdown_on_complete:
                 rclpy.shutdown()

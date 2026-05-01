@@ -67,8 +67,8 @@ def generate_launch_description():
     auto_map_arg = DeclareLaunchArgument('auto_map', default_value='true')
     world_arg = DeclareLaunchArgument('world', default_value='scout_arena.world')
     map_name_arg = DeclareLaunchArgument('map_name', default_value='')
-    x_pose_arg = DeclareLaunchArgument('x_pose', default_value='-2.6')
-    y_pose_arg = DeclareLaunchArgument('y_pose', default_value='-3.0')
+    x_pose_arg = DeclareLaunchArgument('x_pose', default_value='0.0')
+    y_pose_arg = DeclareLaunchArgument('y_pose', default_value='0.0')
 
     mode = LaunchConfiguration('mode')
     task = LaunchConfiguration('task')

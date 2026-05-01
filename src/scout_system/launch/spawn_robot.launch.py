@@ -29,8 +29,8 @@ def generate_launch_description():
     pkg_scout = get_package_share_directory('scout_system')
     pkg_tb3_gazebo = get_package_share_directory('turtlebot3_gazebo')
 
-    x = DeclareLaunchArgument('x_pose', default_value='-2.6')
-    y = DeclareLaunchArgument('y_pose', default_value='-3.0')
+    x = DeclareLaunchArgument('x_pose', default_value='0.0')
+    y = DeclareLaunchArgument('y_pose', default_value='0.0')
     yaw = DeclareLaunchArgument('yaw', default_value='0.0')
     use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='true')
 

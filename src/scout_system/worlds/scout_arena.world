@@ -3,15 +3,15 @@
   <!--
     Scout Arena
     ============
-    8 m x 8 m walled room (walls at +-4 m, 1.0 m tall) with:
+    4 m x 4 m walled room (walls at +-2 m, 1.0 m tall) with:
       * 3 colored FSAE-style traffic cones (~12", red=fire, yellow=chemical, blue=medical)
-      * a dock pad at (-3, -3)
-      * a static UR7 placeholder at (-3.5, -3) next to the dock
+      * a dock pad at (0, 0)
+      * a static UR7 placeholder at (-0.9, 0) just behind the dock
 
-    The robot is spawned separately by the launch file near the dock
+    The robot is spawned separately by the launch file on top of the dock
     (see scout_system/launch/spawn_robot.launch.py, default pose
-    (-2.6, -3.0, yaw=0)). The scene anchor for "home" is therefore the
-    dock model.
+    (0.0, 0.0, yaw=0)). The dock pad is non-colliding so the robot sits
+    flush on it.
   -->
   <world name="scout_arena">
     <gui fullscreen="0">
@@ -39,54 +39,54 @@
       <uri>model://ground_plane</uri>
     </include>
 
-    <!-- ============ WALLS (8 m x 8 m box) ============ -->
+    <!-- ============ WALLS (4 m x 4 m box) ============ -->
     <model name="wall_north">
       <static>true</static>
-      <pose>0 4.0 0.5 0 0 0</pose>
+      <pose>0 2.0 0.5 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8.2 0.2 1.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>8.2 0.2 1.0</size></box></geometry>
+        <collision name="c"><geometry><box><size>4.2 0.2 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>4.2 0.2 1.0</size></box></geometry>
           <material><ambient>0.75 0.75 0.75 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material></visual>
       </link>
     </model>
     <model name="wall_south">
       <static>true</static>
-      <pose>0 -4.0 0.5 0 0 0</pose>
+      <pose>0 -2.0 0.5 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8.2 0.2 1.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>8.2 0.2 1.0</size></box></geometry>
+        <collision name="c"><geometry><box><size>4.2 0.2 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>4.2 0.2 1.0</size></box></geometry>
           <material><ambient>0.75 0.75 0.75 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material></visual>
       </link>
     </model>
     <model name="wall_east">
       <static>true</static>
-      <pose>4.0 0 0.5 0 0 0</pose>
+      <pose>2.0 0 0.5 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.2 8.2 1.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.2 8.2 1.0</size></box></geometry>
+        <collision name="c"><geometry><box><size>0.2 4.2 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.2 4.2 1.0</size></box></geometry>
           <material><ambient>0.75 0.75 0.75 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material></visual>
       </link>
     </model>
     <model name="wall_west">
       <static>true</static>
-      <pose>-4.0 0 0.5 0 0 0</pose>
+      <pose>-2.0 0 0.5 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.2 8.2 1.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.2 8.2 1.0</size></box></geometry>
+        <collision name="c"><geometry><box><size>0.2 4.2 1.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.2 4.2 1.0</size></box></geometry>
           <material><ambient>0.75 0.75 0.75 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material></visual>
       </link>
     </model>
 
-    <!-- ============ DOCK + UR7 placeholder (home corner) ============ -->
+    <!-- ============ DOCK + UR7 placeholder (home center) ============ -->
     <include>
       <uri>model://scout_dock</uri>
       <name>scout_dock</name>
-      <pose>-3.0 -3.0 0.0 0 0 0</pose>
+      <pose>0.0 0.0 0.0 0 0 0</pose>
     </include>
     <include>
       <uri>model://ur7_placeholder</uri>
       <name>ur7_placeholder</name>
-      <pose>-3.5 -3.0 0.4 0 0 0</pose>
+      <pose>-0.9 0.0 0.4 0 0 0</pose>
     </include>
 
     <!-- ============ HAZARD CONES (FSAE-style, ~12 in) ============ -->
@@ -94,17 +94,17 @@
     <include>
       <uri>model://hazard_cone_red</uri>
       <name>hazard_red</name>
-      <pose>2.5 1.0 0.0 0 0 0</pose>
+      <pose>1.5 1.0 0.0 0 0 0</pose>
     </include>
     <include>
       <uri>model://hazard_cone_yellow</uri>
       <name>hazard_yellow</name>
-      <pose>0.0 3.0 0.0 0 0 0</pose>
+      <pose>-1.5 1.0 0.0 0 0 0</pose>
     </include>
     <include>
       <uri>model://hazard_cone_blue</uri>
       <name>hazard_blue</name>
-      <pose>-2.5 0.5 0.0 0 0 0</pose>
+      <pose>0.0 -1.5 0.0 0 0 0</pose>
     </include>
 
     <!-- Optional inner obstacle so exploration isn't a trivial sweep -->
