@@ -273,7 +273,13 @@ global_costmap:
       robot_radius: 0.22
       resolution: 0.05
       track_unknown_space: true
-      plugins: ["obstacle_layer", "inflation_layer"]
+      plugins: ["polygon_static", "obstacle_layer", "inflation_layer"]
+      polygon_static:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: "/scout/final_map"
+        map_subscribe_transient_local: true
+        trinary_costmap: true
+        enabled: true
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true

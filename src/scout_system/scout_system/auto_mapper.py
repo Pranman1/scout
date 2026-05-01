@@ -64,7 +64,8 @@ class AutoMapper(Node):
             'bounds_polygon',
             # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
             # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
-            [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
+            # [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
+             [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
             )
 
         self.map_path = self.get_parameter('map_path').value
@@ -281,6 +282,7 @@ class AutoMapper(Node):
         if self.state == State.INIT:
             if self.latest_map is not None:
                 self.state = State.PICK_TARGET
+                self.final_map_pub.publish(self.latest_map)
 
         elif self.state == State.PICK_TARGET:
             robot_xy = self._get_robot_xy()
@@ -306,9 +308,19 @@ class AutoMapper(Node):
                             Parameter(name='goal_checker.yaw_goal_tolerance',
                                     value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.05)),
                             Parameter(name='FollowPath.xy_goal_tolerance',
-                                    value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.05)),    
+                                    value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.05)), 
                         ]
                         client.call_async(req)
+
+                    # client = self.create_client(SetParameters, '/global_costmap/global_costmap/set_parameters')
+                    # if client.wait_for_service(timeout_sec=2.0):
+                    #     req = SetParameters.Request()
+                    #     req.parameters = [
+                    #         Parameter(name='static_layer.map_topic',
+                    #                 value=ParameterValue(type=ParameterType.PARAMETER_STRING,
+                    #            string_value='/scout/final_map'))   
+                    #     ]
+                    #     client.call_async(req)
 
 
                     self._send_nav_goal(0.0, 0.0)
