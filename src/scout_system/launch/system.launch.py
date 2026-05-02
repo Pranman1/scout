@@ -213,7 +213,8 @@ def generate_launch_description():
             'params_file': nav_params_mapping,
             'map_subscribe_transient_local': 'true',
         }.items(),
-        condition=_cond(needs_slam_ex),
+        condition=_cond(needs_slam_ex
+                        + [' and not ('] + map_task_ex + [' and not '] + auto_map_ex + [')']),
     )
 
     # ============================================================ 4. AUTO MAPPER
@@ -264,8 +265,12 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': PythonExpression(sim_ex),
             'params_file': hazard_params,
-            'image_topic': '/camera/image_raw',
-            'camera_info_topic': '/camera/camera_info',
+            'image_topic': PythonExpression(
+                ["'/camera/image_raw' if '", mode, "' == 'sim' else '/image_raw'"]
+            ),
+            'camera_info_topic': PythonExpression(
+                ["'/camera/camera_info' if '", mode, "' == 'sim' else '/camera_info'"]
+            ),
             'map_frame': 'map',
             # All other tuning (depth-jump, cluster width, bearing tol, etc.)
             # lives in hazard_detector.py defaults; override here if needed.
