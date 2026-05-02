@@ -34,7 +34,7 @@ class ManualMapper(Node):
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
 
         self.declare_parameter('map_path', '')
-        self.declare_parameter('linear_speed', 0.3)
+        self.declare_parameter('linear_speed', 0.2)
         self.declare_parameter('angular_speed', 1.5)
 
         self.map_path = self.get_parameter('map_path').value

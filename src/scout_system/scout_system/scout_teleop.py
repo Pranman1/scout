@@ -30,7 +30,7 @@ class ScoutTeleop(Node):
         super().__init__('scout_teleop')
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
 
-        self.declare_parameter('linear_speed', 0.3)
+        self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('angular_speed', 1.5)
 
         self.speed = float(self.get_parameter('linear_speed').value)

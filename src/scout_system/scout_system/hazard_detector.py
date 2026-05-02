@@ -23,6 +23,7 @@ from tf_transformations import quaternion_matrix
 from visualization_msgs.msg import Marker, MarkerArray
 from scout_msgs.msg import Hazard
 from scout_system.detectors import Detection, build_detector
+from shapely.geometry import Point as ShapelyPoint, Polygon
 
 
 SENSOR_QOS = QoSProfile(
@@ -38,6 +39,8 @@ _COLOR_TO_RGBA = {
     'blue':   ColorRGBA(r=0.1, g=0.3, b=1.0, a=0.9),
     'green':  ColorRGBA(r=0.1, g=1.0, b=0.2, a=0.9),
 }
+
+
 
 
 @dataclass
@@ -110,6 +113,20 @@ class HazardDetector(Node):
             f"HazardDetector ready (backend={backend}, image={self.image_topic}, "
             f"scan={self.scan_topic}, lidar_frame={self.lidar_frame})"
         )
+        self.declare_parameter(
+            'bounds_polygon',
+            # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
+            # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
+            [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
+            #  [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
+        )
+
+        flat = list(self.get_parameter('bounds_polygon').value)
+        if len(flat) < 6 or len(flat) % 2 != 0:
+            raise ValueError("not correct polygon pts formarat")
+
+        verts = list(zip(flat[0::2], flat[1::2]))
+        self.polygon = Polygon(verts)
 
     # ------------------------------------------------------------------ callbacks brebv
    
@@ -317,6 +334,22 @@ class HazardDetector(Node):
         for c in clusters:
             if c is None:
                 continue
+
+            r = c.range
+            alpha = c.bearing
+
+            x = r * math.cos(alpha)
+            y= r * math.sin(alpha)
+            z = 0.0
+
+            map_point = self._lidar_to_map(x, y, z, scan.header.stamp)
+            if map_point is None:
+                continue
+            x ,y ,z= map_point.x, map_point.y, map_point.z
+
+            if not self.polygon.contains(ShapelyPoint(x, y)):
+                continue
+
             if c.range>self.max_range:
                 continue
             if self.min_rays > c.n_rays:
@@ -324,6 +357,7 @@ class HazardDetector(Node):
             width = 2*c.range*math.sin(abs(c.bearing_max - c.bearing_min)/2)
             if width > self.max_cluster_width:
                 continue
+
             retval.append(c)
         return retval
 
