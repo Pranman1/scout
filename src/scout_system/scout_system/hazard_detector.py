@@ -72,7 +72,7 @@ class HazardDetector(Node):
         self.declare_parameter('cluster_depth_jump_m', 0.20)
         self.declare_parameter('cluster_max_width_m', 0.30)
         self.declare_parameter('cluster_min_rays', 1)
-        self.declare_parameter('bearing_match_tol_deg', 5.0)
+        self.declare_parameter('bearing_match_tol_deg', 20.0)
         self.declare_parameter('max_range_m', 4.0)
 
         self.image_topic = self.get_parameter('image_topic').value
@@ -307,17 +307,21 @@ class HazardDetector(Node):
 
         for r, bearing in zip(adapted_ranges, adapted_bearings):
             if not math.isfinite(r) or r == 0.0 or r == None:
+                # self.get_logger().info("invalid range")
                 continue
             if r > self.max_range:
+                # self.get_logger().info("range is too large")
                 clusters.append(current)
                 current = _ScanCluster(bearing=bearing, range=r, bearing_min=bearing, bearing_max=bearing, n_rays=1)
                 prev_range = r
                 continue
             if current is None or prev_range is None:
+                # self.get_logger().info("current is None or prev_range is None,new cluster`")
                 prev_range = r
                 current = _ScanCluster(bearing=bearing, range=r, bearing_min=bearing, bearing_max=bearing, n_rays=1)
                 continue
             if abs(r - prev_range) > self.depth_jump:
+                # self.get_logger().info("depth jump is too large,new cluster")
                 clusters.append(current)
                 prev_range = r
                 current = _ScanCluster(bearing=bearing, range=r, bearing_min=bearing, bearing_max=bearing, n_rays=1)
@@ -344,18 +348,23 @@ class HazardDetector(Node):
 
             map_point = self._lidar_to_map(x, y, z, scan.header.stamp)
             if map_point is None:
+                self.get_logger().info("map point is None")
                 continue
             x ,y ,z= map_point.x, map_point.y, map_point.z
 
             if not self.polygon.contains(ShapelyPoint(x, y)):
+                self.get_logger().info("point is not in polygon")
                 continue
 
             if c.range>self.max_range:
+                self.get_logger().info("range is too large")
                 continue
             if self.min_rays > c.n_rays:
+                self.get_logger().info("number of rays is too small")
                 continue
             width = 2*c.range*math.sin(abs(c.bearing_max - c.bearing_min)/2)
             if width > self.max_cluster_width:
+                self.get_logger().info("width is too large")
                 continue
 
             retval.append(c)
@@ -388,6 +397,9 @@ class HazardDetector(Node):
                 retval = c
                 min_dist = dist  
 
+        if retval is None:
+            self.get_logger().info("no cluster found")
+            
         return retval
 
     # PLUMBING stuff brev (DONZO washington)
@@ -396,7 +408,7 @@ class HazardDetector(Node):
         """Transform a point from self.lidar_frame to self.map_frame.
         """
         try:
-            tf = self.tf_buffer.lookup_transform(self.map_frame, self.lidar_frame, Time.from_msg(stamp),timeout=Duration(seconds=0.1), )
+            tf = self.tf_buffer.lookup_transform(self.map_frame, self.lidar_frame, Time(),timeout=Duration(seconds=0.1), )
         except Exception:
             return None
 
