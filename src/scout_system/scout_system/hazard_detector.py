@@ -557,12 +557,13 @@ class HazardDetector(Node):
                 score_array[i][j] = self._score_cluster(det_bearings[i], clusters[j])
         
         for i in range(len(det_bearings)):
-            score_array[i][len(clusters)] = 20
+            score_array[i][len(clusters)] = 5/360 * math.pi
 
         for i in range(len(det_bearings)):
             index = score_array[i].index(min(score_array[i]))
             if index < len(clusters):
                 retval[i] = clusters[index]
+                print(retval[i].bearing, det_bearings[i][1])
             else:
                 retval[i] = None
 
