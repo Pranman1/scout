@@ -86,6 +86,7 @@ class HazardDetector(Node):
         self.min_rays = int(self.get_parameter('cluster_min_rays').value)
         self.match_tol = math.radians(float(self.get_parameter('bearing_match_tol_deg').value))
         self.max_range = float(self.get_parameter('max_range_m').value)
+        self.merger_tol = 0.1
 
         self.cfg = self._load_config()
         det_cfg = self.cfg.get('detector', {})
@@ -115,9 +116,9 @@ class HazardDetector(Node):
         )
         self.declare_parameter(
             'bounds_polygon',
-            # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
+            [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
             # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
-            [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
+            # [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
             #  [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
         )
 
@@ -180,6 +181,7 @@ class HazardDetector(Node):
             map_point = self._fuse_to_map(det, scan, msg.header.stamp)
             if map_point is None:
                 continue
+
             hazard = Hazard()
             hazard.header.stamp = msg.header.stamp
             hazard.header.frame_id = self.map_frame
@@ -335,10 +337,48 @@ class HazardDetector(Node):
 
         retval = []
 
+        cluster_cluster = []
+        prev_cluster = None
+
         for c in clusters:
             if c is None:
                 continue
+            if prev_cluster is None:
+                prev_cluster = c
+                continue
 
+            r_cur = c.range
+            alpha_cur = c.bearing
+
+            x_cur = r_cur * math.cos(alpha_cur)
+            y_cur = r_cur * math.sin(alpha_cur)
+            z_cur = 0.0
+
+            r_prev = prev_cluster.range
+            alpha_prev = prev_cluster.bearing
+
+            x_prev = r_prev * math.cos(alpha_prev)
+            y_prev = r_prev * math.sin(alpha_prev)
+            z_prev = 0.0
+
+            diff = ((x_cur - x_prev)**2 + (y_cur - y_prev)**2)**0.5
+            if diff > self.merger_tol:
+                cluster_cluster.append(prev_cluster)
+                prev_cluster = c
+                continue
+
+            prev_cluster = self._merge_clusters(prev_cluster, c)
+        
+        if prev_cluster is not None:
+            cluster_cluster.append(prev_cluster)
+
+            
+
+
+        for c in cluster_cluster:
+            if c is None:
+                continue
+            
             r = c.range
             alpha = c.bearing
 
@@ -347,6 +387,7 @@ class HazardDetector(Node):
             z = 0.0
 
             map_point = self._lidar_to_map(x, y, z, scan.header.stamp)
+
             if map_point is None:
                 self.get_logger().info("map point is None")
                 continue
@@ -381,6 +422,29 @@ class HazardDetector(Node):
         current.bearing_max = max(current.bearing_max, bearing)
         current.n_rays += 1
         return current
+    
+    def _merge_clusters(self, a: _ScanCluster, b: _ScanCluster) -> _ScanCluster:
+
+        a_min = a.bearing_min
+        a_max = a.bearing_max
+        a_range = a.range
+        a_n_rays = a.n_rays
+        a_bearing = a.bearing
+        b_min = b.bearing_min
+        b_max = b.bearing_max
+        b_range = b.range
+        b_n_rays = b.n_rays
+        b_bearing = b.bearing
+
+
+        new_min = min(a_min, b_min)
+        new_max = max(a_max, b_max)
+        new_range = (a_range * a_n_rays + b_range * b_n_rays) / (a_n_rays + b_n_rays)
+        new_n_rays = a_n_rays + b_n_rays
+        new_bearing = (a_bearing * a_n_rays + b_bearing * b_n_rays) / (a_n_rays + b_n_rays)
+
+        return _ScanCluster(bearing=new_bearing, range=new_range, bearing_min=new_min, bearing_max=new_max, n_rays=new_n_rays)
+        
 
 
 
@@ -408,7 +472,7 @@ class HazardDetector(Node):
         """Transform a point from self.lidar_frame to self.map_frame.
         """
         try:
-            tf = self.tf_buffer.lookup_transform(self.map_frame, self.lidar_frame, Time(),timeout=Duration(seconds=0.1), )
+            tf = self.tf_buffer.lookup_transform(self.map_frame, self.lidar_frame, Time(),timeout=Duration(seconds=0.3), )
         except Exception:
             return None
 

@@ -281,7 +281,7 @@ def generate_launch_description():
             # are usually noise. Cones beyond ~3 m subtend 1 ray only,
             # so this also caps effective range; lower to 1 if you need
             # those long-range hits and accept more noise.
-            'cluster_min_rays': 2,
+            'cluster_min_rays': 3,
             # Cone is 14 cm wide. 0.22 m gives ~5 cm slack for ray noise
             # while still cleanly rejecting the 0.5 m pillar.
             'cluster_max_width_m': 0.22,
