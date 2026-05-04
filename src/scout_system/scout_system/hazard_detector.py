@@ -177,8 +177,15 @@ class HazardDetector(Node):
             return
 
         markers = MarkerArray()
-        for idx, det in enumerate(detections):
-            map_point = self._fuse_to_map(det, scan, msg.header.stamp)
+        map_points = []
+
+        dets = [d for d in detections if d is not None]
+
+        detmaps = self._fuse_to_map2(dets, scan, msg.header.stamp)
+        if detmaps is None:
+            return
+
+        for idx, (det,map_point) in enumerate(detmaps):
             if map_point is None:
                 continue
 
@@ -193,6 +200,24 @@ class HazardDetector(Node):
             self.pub_raw.publish(hazard)
 
             markers.markers.append(self._make_marker(idx, hazard, msg.header.stamp))
+
+
+        # for idx, det in enumerate(detections):
+        #     map_point = self._fuse_to_map(det, scan, msg.header.stamp)
+        #     if map_point is None:
+        #         continue
+
+        #     hazard = Hazard()
+        #     hazard.header.stamp = msg.header.stamp
+        #     hazard.header.frame_id = self.map_frame
+        #     hazard.id = -1
+        #     hazard.color = det.label
+        #     hazard.category = self.color_to_category.get(det.label, 'unknown')
+        #     hazard.position = map_point
+        #     hazard.confidence = det.confidence
+        #     self.pub_raw.publish(hazard)
+
+        #     markers.markers.append(self._make_marker(idx, hazard, msg.header.stamp))
 
         if markers.markers:
             self.pub_markers.publish(markers)
@@ -228,6 +253,52 @@ class HazardDetector(Node):
         map_point = self._lidar_to_map(x, y, z, scan.header.stamp)
 
         return map_point
+
+
+
+
+
+    def _fuse_to_map2(self, dets: List[Detection], scan: LaserScan, stamp) -> Optional[List[Tuple[Detection, Point]]]:
+
+        """Top-level: HSV detection + LiDAR scan -> 3D point in map frame.
+        """
+        det_bearings = []
+        det_list = []
+
+        for det in dets:
+            bearings = self._detection_bearing(det)
+            if bearings is None:
+                continue
+            
+            det_bearings.append(bearings)
+            det_list.append(det)
+
+
+        thresh = math.pi / 2.0
+        clusters = self._cluster_scan(scan, -thresh, +thresh)
+        if not clusters:
+            return None
+
+        clusters = self._match_cluster2(det_bearings, clusters)      
+        if clusters is None:
+            return None
+
+        map_points = []
+
+        for cluster in clusters:
+            if cluster is None:
+                map_points.append(None)
+                continue
+            r = cluster.range
+            alpha = cluster.bearing
+            x = r * math.cos(alpha)
+            y= r * math.sin(alpha)
+            z = 0.0
+            map_point = self._lidar_to_map(x, y, z, scan.header.stamp)
+            map_points.append(map_point)
+
+        return zip(det_list, map_points)
+
 
     def _detection_bearing(self, det: Detection) -> Optional[Tuple[float, float, float]]:
         
@@ -466,7 +537,45 @@ class HazardDetector(Node):
             
         return retval
 
+
+
+
+
+
+    def _match_cluster2(self,det_bearings: List[Tuple[float, float, float]], clusters: List[_ScanCluster], ) -> Optional[List[_ScanCluster]]:
+        # at this stage the det_breaing is compelte and not None, so need for each detection we start iwht our scan_clsuter is none and asing the corect asisgemtns fo scna clusters to the detectiosn 
+        # note that not all sacna clsuters need be asigned 
+
+       
+
+        retval = [None] * len(det_bearings)
+
+        score_array = [[None for i in range(len(clusters) + 1)] for j in range(len(det_bearings))]
+
+        for i in range(len(det_bearings)):
+            for j in range(len(clusters)):
+                score_array[i][j] = self._score_cluster(det_bearings[i], clusters[j])
+        
+        for i in range(len(det_bearings)):
+            score_array[i][len(clusters)] = 20
+
+        for i in range(len(det_bearings)):
+            index = score_array[i].index(min(score_array[i]))
+            if index < len(clusters):
+                retval[i] = clusters[index]
+            else:
+                retval[i] = None
+
+        return retval
+
+
     # PLUMBING stuff brev (DONZO washington)
+
+
+
+    def _score_cluster(self, det_bearing: Tuple[float, float, float], cluster: _ScanCluster) -> float:
+        return abs(det_bearing[1] - cluster.bearing)
+
 
     def _lidar_to_map(self, x: float, y: float, z: float, stamp) -> Optional[Point]:
         """Transform a point from self.lidar_frame to self.map_frame.
