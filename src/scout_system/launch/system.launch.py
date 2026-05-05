@@ -335,6 +335,7 @@ def generate_launch_description():
         parameters=[{'prep_seconds': 2.0, 'always_accept': True}],
         condition=_cond(needs_mission_ex),
     )
+    # ===============================================================================
 
     mission_manager = Node(
         package='scout_system',
@@ -362,5 +363,8 @@ def generate_launch_description():
         auto_mapper, manual_mapper,
         hazard_detector, hazard_tracker,
         nav2_saved,
-        ur7_stub, mission_manager,
+            # ===============================================================================
+        # ur7_stub, 
+            # ===============================================================================
+        mission_manager,
     ])

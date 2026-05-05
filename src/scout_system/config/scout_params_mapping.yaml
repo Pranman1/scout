@@ -155,7 +155,7 @@ controller_server:
         near_goal_distance: 0.5
         # MPPI's internal inflation; trimmed 0.55 -> 0.30 so MPPI doesn't
         # double-penalize cells the costmap already inflated.
-        inflation_radius: 0.30
+        inflation_radius: 0.10
         cost_scaling_factor: 10.0
       GoalCritic:
         enabled: true
@@ -219,7 +219,7 @@ local_costmap:
         # Cut from 0.25 -> 0.15: smaller "stay back" zone. Combined with
         # robot_radius (0.22), robot will keep ~0.37m clearance instead
         # of ~0.47m. Mapping phase only -- mission phase keeps tighter.
-        inflation_radius: 0.20
+        inflation_radius: 0.10
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -299,7 +299,7 @@ global_costmap:
         # Bumped 2.0 -> 4.0 and trimmed 0.20 -> 0.12 so the planner is
         # willing to draw paths closer to walls (mapping phase only).
         cost_scaling_factor: 4.0
-        inflation_radius: 0.17
+        inflation_radius: 0.10
       always_send_full_costmap: true
 
 map_server:
