@@ -364,7 +364,7 @@ def generate_launch_description():
         hazard_detector, hazard_tracker,
         nav2_saved,
             # ===============================================================================
-        # ur7_stub, 
+        ur7_stub, 
             # ===============================================================================
         mission_manager,
     ])

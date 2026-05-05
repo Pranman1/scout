@@ -116,9 +116,9 @@ class HazardDetector(Node):
         )
         self.declare_parameter(
             'bounds_polygon',
-            [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
+            # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
             # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
-            # [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
+            [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
             #  [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
         )
 
@@ -460,23 +460,23 @@ class HazardDetector(Node):
             map_point = self._lidar_to_map(x, y, z, scan.header.stamp)
 
             if map_point is None:
-                self.get_logger().info("map point is None")
+                # self.get_logger().info("map point is None")
                 continue
             x ,y ,z= map_point.x, map_point.y, map_point.z
 
             if not self.polygon.contains(ShapelyPoint(x, y)):
-                self.get_logger().info("point is not in polygon")
+                # self.get_logger().info("point is not in polygon")
                 continue
 
             if c.range>self.max_range:
-                self.get_logger().info("range is too large")
+                # self.get_logger().info("range is too large")
                 continue
             if self.min_rays > c.n_rays:
-                self.get_logger().info("number of rays is too small")
+                # self.get_logger().info("number of rays is too small")
                 continue
             width = 2*c.range*math.sin(abs(c.bearing_max - c.bearing_min)/2)
             if width > self.max_cluster_width:
-                self.get_logger().info("width is too large")
+                # self.get_logger().info("width is too large")
                 continue
 
             retval.append(c)
