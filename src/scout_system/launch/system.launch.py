@@ -299,6 +299,9 @@ def generate_launch_description():
             'camera_info_topic': PythonExpression(
                 ["'/camera/camera_info' if '", mode, "' == 'sim' else '/scout/camera_info'"]
             ),
+            'scan_topic': PythonExpression(
+                ["'/scan' if '", mode, "' == 'sim' else '/scout/scan'"]
+            ),
             'map_frame': 'map',
             'lidar_frame': PythonExpression(
                 ["'base_scan' if '", mode, "' == 'sim' else 'scout/base_scan'"]
