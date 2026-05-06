@@ -57,8 +57,8 @@ class AutoMapper(Node):
         self.declare_parameter('map_path', '')
         self.declare_parameter('shutdown_on_complete', False)
         self.declare_parameter('tick_period', 1.0)
-        self.declare_parameter('robot_frame', 'base_link')
-        self.declare_parameter('map_frame', 'map')
+        self.declare_parameter('robot_frame', 'scout/base_link')
+        self.declare_parameter('map_frame', 'scout/map')
         self.declare_parameter('max_consecutive_empty', 3)
         self.declare_parameter(
             'bounds_polygon',

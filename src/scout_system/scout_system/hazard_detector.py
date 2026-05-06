@@ -63,11 +63,11 @@ class HazardDetector(Node):
 
         # --------------- params --------------------------------------
         self.declare_parameter('params_file', '')
-        self.declare_parameter('image_topic', '/camera/image_raw')
-        self.declare_parameter('camera_info_topic', '/camera/camera_info')
-        self.declare_parameter('scan_topic', '/scan')
-        self.declare_parameter('map_frame', 'map')
-        self.declare_parameter('lidar_frame', 'base_scan')
+        self.declare_parameter('image_topic', '/scout/camera/image_raw')
+        self.declare_parameter('camera_info_topic', '/scout/camera/camera_info')
+        self.declare_parameter('scan_topic', '/scout/scan')
+        self.declare_parameter('map_frame', 'scout/map')
+        self.declare_parameter('lidar_frame', 'scout/base_scan')
         self.declare_parameter('max_scan_age_s', 0.3)
         self.declare_parameter('cluster_depth_jump_m', 0.20)
         self.declare_parameter('cluster_max_width_m', 0.30)

@@ -1,10 +1,10 @@
 slam_toolbox:
   ros__parameters:
     use_sim_time: false         # launch file overrides based on mode
-    odom_frame: odom
-    map_frame: map
-    base_frame: base_footprint
-    scan_topic: /scan
+    odom_frame: scout/odom
+    map_frame: scout/map
+    base_frame: scout/base_footprint
+    scan_topic: /scout/scan
     mode: mapping
 
     map_update_interval: 1.0

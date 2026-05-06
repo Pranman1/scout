@@ -266,12 +266,14 @@ def generate_launch_description():
             'use_sim_time': PythonExpression(sim_ex),
             'params_file': hazard_params,
             'image_topic': PythonExpression(
-                ["'/camera/image_raw' if '", mode, "' == 'sim' else '/image_raw'"]
+                ["'/scout/camera/image_raw' if '", mode, "' == 'sim' else '/scout/image_raw'"]
             ),
             'camera_info_topic': PythonExpression(
-                ["'/camera/camera_info' if '", mode, "' == 'sim' else '/camera_info'"]
+                ["'/scout/camera/camera_info' if '", mode, "' == 'sim' else '/scout/camera_info'"]
             ),
-            'map_frame': 'map',
+            'scan_topic': '/scout/scan',
+            'map_frame': 'scout/map',
+            'lidar_frame': 'scout/base_scan',
             # All other tuning (depth-jump, cluster width, bearing tol, etc.)
             # lives in hazard_detector.py defaults; override here if needed.
             # 3.1 m collapses the lidar's 3.5 m hardware limit and the

@@ -45,10 +45,12 @@ class HazardTracker(Node):
         self.declare_parameter('min_observations', 3)
         self.declare_parameter('hazards_file', '')
         self.declare_parameter('republish_period_s', 2.0)
+        self.declare_parameter('map_frame', 'scout/map')
 
         self.merge_radius = float(self.get_parameter('merge_radius_m').value)
         self.min_obs = int(self.get_parameter('min_observations').value)
         self.hazards_file = self.get_parameter('hazards_file').value
+        self.map_frame = self.get_parameter('map_frame').value
         period = float(self.get_parameter('republish_period_s').value)
 
         self._tracks: List[_Track] = []
@@ -114,7 +116,7 @@ class HazardTracker(Node):
 
         h = Hazard()
         h.header.stamp = self.get_clock().now().to_msg()
-        h.header.frame_id = 'map'
+        h.header.frame_id = self.map_frame
         h.id = t.id
         h.color = t.color
         h.category = t.category
@@ -145,7 +147,7 @@ class HazardTracker(Node):
         """Build an RViz CYLINDER marker for a confirmed track.
         """
         marker = Marker()
-        marker.header.frame_id = 'map'
+        marker.header.frame_id = self.map_frame
         marker.header.stamp = stamp
         marker.ns = 'hazards_confirmed'
         marker.id = t.id

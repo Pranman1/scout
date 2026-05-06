@@ -61,12 +61,14 @@ class MissionManager(Node):
         self.declare_parameter('standoff_distance', 0.6)
         self.declare_parameter('hazards_wait_timeout', 3.0)
         self.declare_parameter('request_package_timeout', 15.0)
+        self.declare_parameter('map_frame', 'scout/map')
         self.create_timer(self.tick_period, self.tick_callback)
 
         self.waypoints_file: str = self.get_parameter('waypoints_file').value
         self.standoff: float = float(self.get_parameter('standoff_distance').value)
         self.hazards_wait_timeout: float = float(self.get_parameter('hazards_wait_timeout').value)
         self.req_timeout: float = float(self.get_parameter('request_package_timeout').value)
+        self.map_frame: str = self.get_parameter('map_frame').value
 
         self.navigator = BasicNavigator()
         self.tf_buffer = Buffer()
@@ -178,7 +180,7 @@ class MissionManager(Node):
                 self.adjust_nav_params(0.2,3.14)
                 self.goal_sent = True
                 pose = PoseStamped()
-                pose.header.frame_id = 'map'
+                pose.header.frame_id = self.map_frame
                 pose.header.stamp = self.get_clock().now().to_msg()
                 pose.pose.position = self.current_hazard.position
                 pose.pose.orientation.w = 1.0
@@ -212,7 +214,7 @@ class MissionManager(Node):
             if self.goal_sent == False:
                 self.goal_sent = True
                 pose = PoseStamped()
-                pose.header.frame_id = 'map'
+                pose.header.frame_id = self.map_frame
                 pose.header.stamp = self.get_clock().now().to_msg()
                 pose.pose.position.x = 0.0
                 pose.pose.position.y = 0.0
