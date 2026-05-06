@@ -156,12 +156,20 @@ def generate_launch_description():
     # Robot-data topic names. Internal scout coordination topics
     # (/scout/mapping_complete etc.) are absolute and identical across
     # modes -- no need to remap or pass them as parameters.
+    #
+    # Camera asymmetry note: in sim the burger_cam Gazebo plugin
+    # publishes under /camera/* and shares the namespaced robot. On the
+    # real robot the Logitech webcam is launched as a separate
+    # standalone node at root namespace (it's *not* part of the
+    # turtlebot3_bringup namespace push), so its topics live at
+    # /image_raw and /camera_info -- NOT /scout/image_raw. The
+    # RealSense at /camera/camera/* is the UR7's and we don't touch it.
     cmd_vel_topic = _ternary(mode, '/scout/cmd_vel', '/cmd_vel')
     scan_topic = _ternary(mode, '/scout/scan', '/scan')
     odom_topic = _ternary(mode, '/scout/odom', '/odom')
-    image_topic = _ternary(mode, '/scout/image_raw', '/camera/image_raw')
+    image_topic = _ternary(mode, '/image_raw', '/camera/image_raw')
     camera_info_topic = _ternary(
-        mode, '/scout/camera_info', '/camera/camera_info'
+        mode, '/camera_info', '/camera/camera_info'
     )
 
     # Make sure our Gazebo models (cubes, dock, UR7 placeholder) resolve.
