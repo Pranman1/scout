@@ -31,7 +31,7 @@ amcl:
     max_beams: 60
     max_particles: 2000
     min_particles: 500
-    odom_frame_id: "odom"
+    odom_frame_id: "scout/odom"
     pf_err: 0.05
     pf_z: 0.99
     recovery_alpha_fast: 0.0
@@ -58,7 +58,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: false
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: scout/base_link
     transform_tolerance: 0.5
     filter_duration: 0.3
     default_nav_to_pose_bt_xml: "$(find-pkg-share nav2_bt_navigator)/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml"
@@ -155,7 +155,7 @@ controller_server:
         near_goal_distance: 0.5
         # MPPI's internal inflation; trimmed 0.55 -> 0.30 so MPPI doesn't
         # double-penalize cells the costmap already inflated.
-        inflation_radius: 0.30
+        inflation_radius: 0.10
         cost_scaling_factor: 10.0
       GoalCritic:
         enabled: true
@@ -203,8 +203,8 @@ local_costmap:
       use_sim_time: false
       update_frequency: 20.0
       publish_frequency: 10.0
-      global_frame: odom
-      robot_base_frame: base_link
+      global_frame: scout/odom
+      robot_base_frame: scout/base_link
       rolling_window: true
       width: 3
       height: 3
@@ -219,7 +219,7 @@ local_costmap:
         # Cut from 0.25 -> 0.15: smaller "stay back" zone. Combined with
         # robot_radius (0.22), robot will keep ~0.37m clearance instead
         # of ~0.47m. Mapping phase only -- mission phase keeps tighter.
-        inflation_radius: 0.20
+        inflation_radius: 0.10
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -265,7 +265,7 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_link
+      robot_base_frame: scout/base_link
       rolling_window: true
       width: 20
       height: 20
@@ -299,7 +299,7 @@ global_costmap:
         # Bumped 2.0 -> 4.0 and trimmed 0.20 -> 0.12 so the planner is
         # willing to draw paths closer to walls (mapping phase only).
         cost_scaling_factor: 4.0
-        inflation_radius: 0.17
+        inflation_radius: 0.10
       always_send_full_costmap: true
 
 map_server:
@@ -345,9 +345,9 @@ behavior_server:
       plugin: "nav2_behaviors/Wait"
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"
-    local_frame: odom
+    local_frame: scout/odom
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: scout/base_link
     transform_timeout: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
@@ -378,7 +378,7 @@ velocity_smoother:
     velocity_timeout: 1.0
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
-    odom_topic: "odom"
+    odom_topic: "scout/odom"
     odom_duration: 0.1
     use_realtime_priority: false
     enable_stamped_cmd_vel: true

@@ -25,7 +25,7 @@ amcl:
     max_beams: 60
     max_particles: 2000
     min_particles: 500
-    odom_frame_id: "odom"
+    odom_frame_id: "scout/odom"
     pf_err: 0.05
     pf_z: 0.99
     recovery_alpha_fast: 0.0
@@ -52,7 +52,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: false
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: scout/base_link
     transform_tolerance: 0.5
     filter_duration: 0.3
     default_nav_to_pose_bt_xml: "$(find-pkg-share nav2_bt_navigator)/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml"
@@ -144,8 +144,8 @@ local_costmap:
       use_sim_time: false
       update_frequency: 20.0
       publish_frequency: 10.0
-      global_frame: odom
-      robot_base_frame: base_link
+      global_frame: scout/odom
+      robot_base_frame: scout/base_link
       rolling_window: true
       width: 3
       height: 3
@@ -201,7 +201,7 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_link
+      robot_base_frame: scout/base_link
       rolling_window: true
       width: 20
       height: 20
@@ -273,9 +273,9 @@ behavior_server:
       plugin: "nav2_behaviors/Wait"
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"
-    local_frame: odom
+    local_frame: scout/odom
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: scout/base_link
     transform_timeout: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
@@ -306,7 +306,7 @@ velocity_smoother:
     velocity_timeout: 1.0
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
-    odom_topic: "odom"
+    odom_topic: "scout/odom"
     odom_duration: 0.1
     use_realtime_priority: false
     enable_stamped_cmd_vel: true

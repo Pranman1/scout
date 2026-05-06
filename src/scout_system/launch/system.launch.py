@@ -34,6 +34,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
     SetEnvironmentVariable,
 )
@@ -44,7 +45,7 @@ from launch.substitutions import (
     PathJoinSubstitution,
     PythonExpression,
 )
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 
 
 def _cond(expr):
@@ -179,6 +180,7 @@ def generate_launch_description():
         executable='scan_resampler',
         name='scan_resampler',
         output='screen',
+        remappings=[('/scan', '/scout/scan')],
         condition=_cond(real_ex + [' and '] + needs_slam_ex),
     )
 
@@ -204,15 +206,21 @@ def generate_launch_description():
     # Nav2 (mapping config: no AMCL, map comes from SLAM).
     # Uses the relaxed-tolerance params so the auto_mapper's frontier goals
     # don't waste seconds inching to exact poses.
-    nav2_mapping = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
-        ),
-        launch_arguments={
-            'use_sim_time': PythonExpression(sim_ex),
-            'params_file': nav_params_mapping,
-            'map_subscribe_transient_local': 'true',
-        }.items(),
+    nav2_mapping = GroupAction(
+        actions=[
+            SetRemap(src='/cmd_vel', dst='/scout/cmd_vel'),
+            SetRemap(src='/odom', dst='/scout/odom'),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
+                ),
+                launch_arguments={
+                    'use_sim_time': PythonExpression(sim_ex),
+                    'params_file': nav_params_mapping,
+                    'map_subscribe_transient_local': 'true',
+                }.items(),
+            ),
+        ],
         condition=_cond(needs_slam_ex
                         + [' and not ('] + map_task_ex + [' and not '] + auto_map_ex + [')']),
     )
@@ -227,6 +235,9 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': PythonExpression(sim_ex),
             'map_path': PathJoinSubstitution([map_base_path]),
+            'robot_frame': PythonExpression(
+                ["'base_link' if '", mode, "' == 'sim' else 'scout/base_link'"]
+            ),
             'completion_timeout': 10.0,
             'save_interval': 0.0,
             # Default in code is 3 -- way too tight given Nav2/SLAM warm-up.
@@ -266,12 +277,15 @@ def generate_launch_description():
             'use_sim_time': PythonExpression(sim_ex),
             'params_file': hazard_params,
             'image_topic': PythonExpression(
-                ["'/camera/image_raw' if '", mode, "' == 'sim' else '/image_raw'"]
+                ["'/camera/image_raw' if '", mode, "' == 'sim' else '/scout/image_raw'"]
             ),
             'camera_info_topic': PythonExpression(
-                ["'/camera/camera_info' if '", mode, "' == 'sim' else '/camera_info'"]
+                ["'/camera/camera_info' if '", mode, "' == 'sim' else '/scout/camera_info'"]
             ),
             'map_frame': 'map',
+            'lidar_frame': PythonExpression(
+                ["'base_scan' if '", mode, "' == 'sim' else 'scout/base_scan'"]
+            ),
             # All other tuning (depth-jump, cluster width, bearing tol, etc.)
             # lives in hazard_detector.py defaults; override here if needed.
             # 3.1 m collapses the lidar's 3.5 m hardware limit and the
@@ -313,16 +327,22 @@ def generate_launch_description():
     )
 
     # ============================================================ 6. NAV (saved-map tasks)
-    nav2_saved = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_tb3_nav, 'launch', 'navigation2.launch.py')
-        ),
-        launch_arguments={
-            'use_sim_time': PythonExpression(sim_ex),
-            'map': [map_base_path, '.yaml'],
-            'params_file': nav_params,
-            'use_rviz': 'True',
-        }.items(),
+    nav2_saved = GroupAction(
+        actions=[
+            SetRemap(src='/cmd_vel', dst='/scout/cmd_vel'),
+            SetRemap(src='/odom', dst='/scout/odom'),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_tb3_nav, 'launch', 'navigation2.launch.py')
+                ),
+                launch_arguments={
+                    'use_sim_time': PythonExpression(sim_ex),
+                    'map': [map_base_path, '.yaml'],
+                    'params_file': nav_params,
+                    'use_rviz': 'True',
+                }.items(),
+            ),
+        ],
         condition=_cond(needs_saved_map_ex),
     )
 
