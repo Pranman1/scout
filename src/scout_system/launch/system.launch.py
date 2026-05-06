@@ -97,12 +97,17 @@ def generate_launch_description():
                                          )])
 
     nav_params = PathJoinSubstitution([pkg_scout, 'config', 'scout_params.yaml'])
+    nav_params_sim = PathJoinSubstitution([pkg_scout, 'config', 'scout_params_sim.yaml'])
     # Relaxed-tolerance variant used while SLAM is active (auto_mapper phase);
     # swaps back to scout_params.yaml for mission/nav tasks that need precision.
     nav_params_mapping = PathJoinSubstitution(
         [pkg_scout, 'config', 'scout_params_mapping.yaml']
     )
+    nav_params_mapping_sim = PathJoinSubstitution(
+        [pkg_scout, 'config', 'scout_params_mapping_sim.yaml']
+    )
     slam_params = PathJoinSubstitution([pkg_scout, 'config', 'slam_params.yaml'])
+    slam_params_sim = PathJoinSubstitution([pkg_scout, 'config', 'slam_params_sim.yaml'])
     explore_params = PathJoinSubstitution([pkg_scout, 'config', 'explore_params.yaml'])
     hazard_params = PathJoinSubstitution([pkg_scout, 'config', 'hazard_params.yaml'])
     waypoints_file = PathJoinSubstitution([pkg_scout, 'config', 'waypoints.txt'])
@@ -189,7 +194,7 @@ def generate_launch_description():
         executable='async_slam_toolbox_node',
         name='slam_toolbox',
         output='screen',
-        parameters=[slam_params, {'use_sim_time': True}],
+        parameters=[slam_params_sim, {'use_sim_time': True}],
         condition=_cond(sim_ex + [' and '] + needs_slam_ex),
     )
 
@@ -208,15 +213,23 @@ def generate_launch_description():
     # don't waste seconds inching to exact poses.
     nav2_mapping = GroupAction(
         actions=[
-            SetRemap(src='/cmd_vel', dst='/scout/cmd_vel'),
-            SetRemap(src='/odom', dst='/scout/odom'),
+            SetRemap(
+                src='/cmd_vel', dst='/scout/cmd_vel',
+                condition=_cond(real_ex),
+            ),
+            SetRemap(
+                src='/odom', dst='/scout/odom',
+                condition=_cond(real_ex),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
                 ),
                 launch_arguments={
                     'use_sim_time': PythonExpression(sim_ex),
-                    'params_file': nav_params_mapping,
+                    'params_file': PythonExpression(
+                        ["'", nav_params_mapping_sim, "' if '", mode, "' == 'sim' else '", nav_params_mapping, "'"]
+                    ),
                     'map_subscribe_transient_local': 'true',
                 }.items(),
             ),
@@ -329,8 +342,14 @@ def generate_launch_description():
     # ============================================================ 6. NAV (saved-map tasks)
     nav2_saved = GroupAction(
         actions=[
-            SetRemap(src='/cmd_vel', dst='/scout/cmd_vel'),
-            SetRemap(src='/odom', dst='/scout/odom'),
+            SetRemap(
+                src='/cmd_vel', dst='/scout/cmd_vel',
+                condition=_cond(real_ex),
+            ),
+            SetRemap(
+                src='/odom', dst='/scout/odom',
+                condition=_cond(real_ex),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(pkg_tb3_nav, 'launch', 'navigation2.launch.py')
@@ -338,7 +357,9 @@ def generate_launch_description():
                 launch_arguments={
                     'use_sim_time': PythonExpression(sim_ex),
                     'map': [map_base_path, '.yaml'],
-                    'params_file': nav_params,
+                    'params_file': PythonExpression(
+                        ["'", nav_params_sim, "' if '", mode, "' == 'sim' else '", nav_params, "'"]
+                    ),
                     'use_rviz': 'True',
                 }.items(),
             ),
