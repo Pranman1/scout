@@ -62,10 +62,19 @@ class AutoMapper(Node):
         self.declare_parameter('max_consecutive_empty', 3)
         self.declare_parameter(
             'bounds_polygon',
-            [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
+            # [0.0, 0.0, 4.0, 0.0, 4.0, 1.5, 0.0, 1.5],
             # [0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.0, 0.5],
             # [-4.0, -4.0, 4.0, -4.0, 4.0, 4.0, -4.0, 4.0],
             #  [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5],
+            [
+            0.0, 0.0, 
+            2.45, 0.0, 
+            2.45, -0.9, 
+            3.75, -0.9, 
+            3.75, 0.85, 
+            0.0, 0.85 
+            ]
+
             )
 
         self.map_path = self.get_parameter('map_path').value
