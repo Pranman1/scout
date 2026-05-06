@@ -59,7 +59,6 @@ class AutoMapper(Node):
         self.declare_parameter('tick_period', 1.0)
         self.declare_parameter('robot_frame', 'base_link')
         self.declare_parameter('map_frame', 'map')
-        self.declare_parameter('robot_namespace', '')
         self.declare_parameter('max_consecutive_empty', 3)
         self.declare_parameter(
             'bounds_polygon',
@@ -72,10 +71,7 @@ class AutoMapper(Node):
         self.map_path = self.get_parameter('map_path').value
         self.shutdown_on_complete = bool(self.get_parameter('shutdown_on_complete').value)
         self.tick_period = float(self.get_parameter('tick_period').value)
-        self.robot_ns = self.get_parameter('robot_namespace').value
-        
-        base_robot_frame = self.get_parameter('robot_frame').value
-        self.robot_frame = self._add_namespace(base_robot_frame)
+        self.robot_frame = self.get_parameter('robot_frame').value
         self.map_frame = self.get_parameter('map_frame').value
         self.max_consecutive_empty = int(self.get_parameter('max_consecutive_empty').value)
 
@@ -135,12 +131,7 @@ class AutoMapper(Node):
         self.get_logger().info(f'  bounds polygon  = {len(verts)} vertices')
         self.get_logger().info(f'  tick_period     = {self.tick_period}s')
 
-    # algorithm's brev
-    
-    def _add_namespace(self, frame_id: str) -> str:
-        if not self.robot_ns or frame_id.startswith('/'):
-            return frame_id
-        return f"{self.robot_ns}/{frame_id}" 
+    # algorithm's brev 
 
 
     def _detect_frontiers(self, grid):

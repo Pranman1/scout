@@ -45,15 +45,14 @@ class HazardTracker(Node):
         self.declare_parameter('min_observations', 3)
         self.declare_parameter('hazards_file', '')
         self.declare_parameter('republish_period_s', 2.0)
+        # 'map' in sim, still 'map' in real (the global frame is shared even
+        # when the robot's TFs are namespaced as scout/...).
         self.declare_parameter('map_frame', 'map')
-        self.declare_parameter('robot_namespace', '')
 
         self.merge_radius = float(self.get_parameter('merge_radius_m').value)
         self.min_obs = int(self.get_parameter('min_observations').value)
         self.hazards_file = self.get_parameter('hazards_file').value
         period = float(self.get_parameter('republish_period_s').value)
-        self.robot_ns = self.get_parameter('robot_namespace').value
-        
         self.map_frame = self.get_parameter('map_frame').value
 
         self._tracks: List[_Track] = []
@@ -67,11 +66,6 @@ class HazardTracker(Node):
         self.pub_markers = self.create_publisher(MarkerArray, '/hazards/confirmed/markers', LATCHED_QOS)
 
         self.create_timer(period, self._republish)
-    
-    def _add_namespace(self, frame_id: str) -> str:
-        if not self.robot_ns or frame_id.startswith('/'):
-            return frame_id
-        return f"{self.robot_ns}/{frame_id}"
 
  
     def _on_raw(self, hz: Hazard):

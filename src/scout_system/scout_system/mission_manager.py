@@ -61,17 +61,16 @@ class MissionManager(Node):
         self.declare_parameter('standoff_distance', 0.6)
         self.declare_parameter('hazards_wait_timeout', 3.0)
         self.declare_parameter('request_package_timeout', 15.0)
+        # 'map' in sim and real -- the global frame is shared even when the
+        # robot's TFs are namespaced as scout/... in real mode.
         self.declare_parameter('map_frame', 'map')
-        self.declare_parameter('robot_namespace', '')
         self.create_timer(self.tick_period, self.tick_callback)
 
         self.waypoints_file: str = self.get_parameter('waypoints_file').value
         self.standoff: float = float(self.get_parameter('standoff_distance').value)
         self.hazards_wait_timeout: float = float(self.get_parameter('hazards_wait_timeout').value)
         self.req_timeout: float = float(self.get_parameter('request_package_timeout').value)
-        self.robot_ns = self.get_parameter('robot_namespace').value
-        
-        self.map_frame = self.get_parameter('map_frame').value
+        self.map_frame: str = self.get_parameter('map_frame').value
 
         self.navigator = BasicNavigator()
         self.tf_buffer = Buffer()
@@ -97,11 +96,6 @@ class MissionManager(Node):
         self.package_request_pub = self.create_publisher(String, '/scout/package_request', 10)
 
     # ------------------------------------------------------------------ helpers
-    
-    def _add_namespace(self, frame_id: str) -> str:
-        if not self.robot_ns or frame_id.startswith('/'):
-            return frame_id
-        return f"{self.robot_ns}/{frame_id}"
 
     def hazard_cb(self, msg: Hazard):
         if msg.id not in self.hazard_dump_ids:

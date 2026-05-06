@@ -48,7 +48,7 @@ amcl:
     z_max: 0.05
     z_rand: 0.5
     z_short: 0.05
-    scan_topic: scan
+    scan_topic: /scout/scan
     map_topic: map
     set_initial_pose: false
     always_reset_initial_pose: false
@@ -225,7 +225,7 @@ local_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scout/scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -245,7 +245,7 @@ local_costmap:
         mark_threshold: 0
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scout/scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -285,7 +285,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scout/scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -378,7 +378,7 @@ velocity_smoother:
     velocity_timeout: 1.0
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
-    odom_topic: "odom"
+    odom_topic: "/scout/odom"
     odom_duration: 0.1
     use_realtime_priority: false
     enable_stamped_cmd_vel: true
