@@ -30,6 +30,8 @@ import numpy as np
 import scipy.ndimage
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
+from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+from geometry_msgs.msg import PoseStamped
 
 class State(Enum):
     INIT = auto()         # waiting for first /map
@@ -87,9 +89,8 @@ class AutoMapper(Node):
         self.state = State.INIT
         self.latest_map = None          
         self.current_target = None      
-        self.nav_in_progress = False
-        self.nav_succeeded = False
-        self.nav_started_t = 0.0
+        # self.nav_in_progress = False
+        # self.nav_succeeded = False
         self.blacklist = set()
         self.consecutive_empty = 0
 
@@ -130,6 +131,7 @@ class AutoMapper(Node):
         self.get_logger().info(f'  map_path        = {self.map_path}')
         self.get_logger().info(f'  bounds polygon  = {len(verts)} vertices')
         self.get_logger().info(f'  tick_period     = {self.tick_period}s')
+        self.navigator = BasicNavigator()
 
     # algorithm's brev 
 
@@ -323,22 +325,28 @@ class AutoMapper(Node):
                     #     client.call_async(req)
 
 
-                    self._send_nav_goal(0.0, 0.0)
+                    # self._send_nav_goal(0.0, 0.0)
+                    self.navigate_to_goal(0.0,0.0)
                     self.state = State.RETURNING_HOME
             else:
+                # ahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
                 self.consecutive_empty = 0
-                if self._send_nav_goal(target.x, target.y):
-                    self.current_target = target
-                    self.state = State.NAVIGATING
+                self.navigate_to_goal(target.x, target.y)
+                self.current_target = target
+                self.state = State.NAVIGATING
 
         elif self.state == State.NAVIGATING:
-            if not self.nav_in_progress and not self.nav_succeeded:
+            check = self.success_status()
+            if not check[0] and not check[1]:
                 self.blacklist.add((self.current_target.x, self.current_target.y))
                 self.state = State.PICK_TARGET
-            if not self.nav_in_progress:
+            if not check[0]:
                 self.state = State.PICK_TARGET
+
+
         elif self.state == State.RETURNING_HOME:
-            if not self.nav_in_progress:
+            check = self.success_status()
+            if not check[0]:
                 self.state = State.COMPLETE
                 self._publish_complete()
         elif self.state == State.COMPLETE:
@@ -372,47 +380,66 @@ class AutoMapper(Node):
     def _in_polygon(self, x, y):
         return self.polygon.contains(Point(x, y))
 
-    def _send_nav_goal(self, x, y, yaw=0.0):
+    # def _send_nav_goal(self, x, y, yaw=0.0):
     
-        if not self.nav_client.wait_for_server(timeout_sec=2.0):
-            self.get_logger().warn('Nav2 action server not ready.')
-            return False
+    #     if not self.nav_client.wait_for_server(timeout_sec=2.0):
+    #         self.get_logger().warn('Nav2 action server not ready.')
+    #         return False
 
-        goal = NavigateToPose.Goal()
-        goal.pose.header.frame_id = self.map_frame
-        goal.pose.header.stamp = self.get_clock().now().to_msg()
-        goal.pose.pose.position.x = float(x)
-        goal.pose.pose.position.y = float(y)
-        goal.pose.pose.orientation.w = 1.0
+    #     goal = NavigateToPose.Goal()
+    #     goal.pose.header.frame_id = self.map_frame
+    #     goal.pose.header.stamp = self.get_clock().now().to_msg()
+    #     goal.pose.pose.position.x = float(x)
+    #     goal.pose.pose.position.y = float(y)
+    #     goal.pose.pose.orientation.w = 1.0
 
-        self.nav_in_progress = True
-        self.nav_succeeded = False
-        self.nav_started_t = time.time()
+    #     self.nav_in_progress = True
+    #     self.nav_succeeded = False
 
-        send_future = self.nav_client.send_goal_async(goal)
-        send_future.add_done_callback(self._on_goal_response)
-        return True
+    #     send_future = self.nav_client.send_goal_async(goal)
+    #     send_future.add_done_callback(self._on_goal_response)
+    #     return True
 
-    def _on_goal_response(self, future):
-        handle = future.result()
-        if not handle.accepted:
-            self.get_logger().warn('Nav2 rejected the goal.')
-            self.nav_in_progress = False
-            self.nav_succeeded = False
-            return
-        result_future = handle.get_result_async()
-        result_future.add_done_callback(self._on_goal_result)
+    # def _on_goal_response(self, future):
+    #     handle = future.result()
+    #     if not handle.accepted:
+    #         self.get_logger().warn('Nav2 rejected the goal.')
+    #         self.nav_in_progress = False
+    #         self.nav_succeeded = False
+    #         return
+    #     result_future = handle.get_result_async()
+    #     result_future.add_done_callback(self._on_goal_result)
 
-    def _on_goal_result(self, future):
-        result = future.result()
-        status = result.status
-        self.nav_in_progress = False
-        self.nav_succeeded = (status == GoalStatus.STATUS_SUCCEEDED)
-        if not self.nav_succeeded:
-            self.get_logger().warn(f'Nav goal ended with status={status}')
+    # def _on_goal_result(self, future):
+    #     result = future.result()
+    #     status = result.status
+    #     self.nav_in_progress = False
+    #     self.nav_succeeded = (status == GoalStatus.STATUS_SUCCEEDED)
+    #     if not self.nav_succeeded:
+    #         self.get_logger().warn(f'Nav goal ended with status={status}')
             
 
 
+
+    def navigate_to_goal(self, x, y, yaw=0.0):
+        pose = PoseStamped()
+        pose.header.frame_id = 'map'
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.orientation.w = 1.0
+        self.navigator.goToPose(pose)
+
+    def success_status(self):
+        if self.navigator.isTaskComplete():
+            res = self.navigator.getResult()
+            if res == TaskResult.SUCCEEDED:
+                return (False,True)
+            else:
+                return (False,False)
+        else:
+            return (True,False)
+    
     def _save_map(self):
         if not self.map_path:
             return False

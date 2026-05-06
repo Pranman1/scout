@@ -231,7 +231,6 @@ class MissionManager(Node):
                     self.state = State.RETURNING_HOME
 
                 self.goal_sent = False
-
             return
         elif self.state == State.COMPLETE:
             self.get_logger().info("Mission completed")
