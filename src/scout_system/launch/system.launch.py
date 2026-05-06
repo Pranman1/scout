@@ -221,6 +221,10 @@ def generate_launch_description():
                 src='/odom', dst='/scout/odom',
                 condition=_cond(real_ex),
             ),
+            SetRemap(
+                src='/scan', dst='/scout/scan',
+                condition=_cond(real_ex),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
@@ -348,6 +352,10 @@ def generate_launch_description():
             ),
             SetRemap(
                 src='/odom', dst='/scout/odom',
+                condition=_cond(real_ex),
+            ),
+            SetRemap(
+                src='/scan', dst='/scout/scan',
                 condition=_cond(real_ex),
             ),
             IncludeLaunchDescription(
