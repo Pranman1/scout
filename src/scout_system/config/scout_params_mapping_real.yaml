@@ -1,4 +1,10 @@
-# Nav2 parameter file for the scout (adapted / pruned from grazen_params.yaml).
+# Nav2 parameter file for the MAPPING phase of the scout.
+# Duplicate of scout_params.yaml with relaxed goal tolerances so the
+# auto_mapper's frontier goals finish quickly (we don't care about exact
+# xy/yaw while exploring). For precision work (mission standoff, docking)
+# use scout_params.yaml instead -- system.launch.py picks automatically
+# based on `task:=map` vs other tasks.
+#
 # Tuned for TurtleBot3 Burger with a LDS-02 laser. Edit carefully -- many
 # blocks are interrelated (e.g. goal_checker.xy_goal_tolerance must match
 # FollowPath.xy_goal_tolerance).
@@ -11,7 +17,7 @@ amcl:
     alpha3: 0.2
     alpha4: 0.2
     alpha5: 0.2
-    base_frame_id: "base_footprint"
+    base_frame_id: "scout/base_footprint"
     beam_skip_distance: 0.5
     beam_skip_error_threshold: 0.9
     beam_skip_threshold: 0.3
@@ -25,7 +31,7 @@ amcl:
     max_beams: 60
     max_particles: 2000
     min_particles: 500
-    odom_frame_id: "odom"
+    odom_frame_id: "scout/odom"
     pf_err: 0.05
     pf_z: 0.99
     recovery_alpha_fast: 0.0
@@ -52,7 +58,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: false
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: scout/base_link
     transform_tolerance: 0.5
     filter_duration: 0.3
     default_nav_to_pose_bt_xml: "$(find-pkg-share nav2_bt_navigator)/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml"
@@ -79,11 +85,15 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    transform_tolerance: 0.5
-    controller_frequency: 50.0
-    min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.001
-    min_theta_velocity_threshold: 0.001
+    # MPPI runs at 20 Hz; much heavier than DWB but samples thousands of
+    # trajectories each cycle so handles tight spaces far better.
+    controller_frequency: 20.0
+    # Bumped from 0.001 -> 0.05 so the goal can be considered "reached"
+    # while the robot is still drifting at low speed; otherwise it has to
+    # come to a near-perfect stop, which costs seconds per goal.
+    min_x_velocity_threshold: 0.05
+    min_y_velocity_threshold: 0.05
+    min_theta_velocity_threshold: 0.05
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
@@ -95,47 +105,96 @@ controller_server:
     goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.1
-      yaw_goal_tolerance: 0.25
+      # Generous: mapping doesn't need cm-accurate poses. 0.5m ~= 2x
+      # robot radius, plenty close enough to treat a frontier as "visited".
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 3.14
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: true
-      min_vel_x: 0.0
-      min_vel_y: 0.0
-      max_vel_x: 0.20
-      max_vel_y: 0.0
-      max_vel_theta: 0.8
-      min_speed_xy: 0.0
-      max_speed_xy: 0.20
-      min_speed_theta: 0.0
-      acc_lim_x: 3.5
-      acc_lim_y: 0.0
-      acc_lim_theta: 4.0
-      decel_lim_x: -4.0
-      decel_lim_y: 0.0
-      decel_lim_theta: -3.2
-      vx_samples: 20
-      vy_samples: 5
-      vtheta_samples: 20
-      sim_time: 1.0
-      linear_granularity: 0.05
-      angular_granularity: 0.025
-      transform_tolerance: 0.5
-      xy_goal_tolerance: 0.1
-      trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: true
-      stateful: true
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 12.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 48.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 1500
+      vx_std: 0.2
+      vy_std: 0.0
+      wz_std: 0.4
+      vx_max: 0.26             # TB3 max forward speed, was 0.20
+      vx_min: -0.10            # allow reversing out of corners
+      wz_max: 1.0
+      ax_max: 3.0
+      ax_min: -3.0
+      az_max: 3.5
+      iteration_count: 1
+      prune_distance: 1.7
+      transform_tolerance: 0.1
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: "DiffDrive"
+      visualize: false
+      regenerate_noises: false
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+      critics: ["ConstraintCritic", "ObstaclesCritic", "GoalCritic",
+                "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic",
+                "PathAngleCritic", "PreferForwardCritic"]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      ObstaclesCritic:
+        enabled: true
+        cost_power: 1
+        # Cut from 1.5 -> 0.8: MPPI cares less about staying away from
+        # non-immediate obstacles (still respects critical_weight near
+        # actual collision).
+        repulsion_weight: 0.8
+        critical_weight: 20.0          # keep -- this is the real-collision penalty
+        consider_footprint: false
+        collision_cost: 10000.0
+        collision_margin_distance: 0.10
+        near_goal_distance: 0.5
+        # MPPI's internal inflation; trimmed 0.55 -> 0.30 so MPPI doesn't
+        # double-penalize cells the costmap already inflated.
+        inflation_radius: 0.30
+        cost_scaling_factor: 10.0
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.07
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.2
+        mode: 0
     enable_stamped_cmd_vel: true
 
 local_costmap:
@@ -144,8 +203,8 @@ local_costmap:
       use_sim_time: false
       update_frequency: 20.0
       publish_frequency: 10.0
-      global_frame: odom
-      robot_base_frame: base_link
+      global_frame: scout/odom
+      robot_base_frame: scout/base_link
       rolling_window: true
       width: 3
       height: 3
@@ -154,8 +213,13 @@ local_costmap:
       plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.5
-        inflation_radius: 0.25
+        # Bumped from 2.5 -> 4.0: steeper falloff = less effective bubble
+        # at any given distance from a wall.
+        cost_scaling_factor: 4.0
+        # Cut from 0.25 -> 0.15: smaller "stay back" zone. Combined with
+        # robot_radius (0.22), robot will keep ~0.37m clearance instead
+        # of ~0.47m. Mapping phase only -- mission phase keeps tighter.
+        inflation_radius: 0.20
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -201,7 +265,7 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_link
+      robot_base_frame: scout/base_link
       rolling_window: true
       width: 20
       height: 20
@@ -209,7 +273,13 @@ global_costmap:
       robot_radius: 0.22
       resolution: 0.05
       track_unknown_space: true
-      plugins: ["obstacle_layer", "inflation_layer"]
+      plugins: ["polygon_static", "obstacle_layer", "inflation_layer"]
+      polygon_static:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: "/scout/final_map"
+        map_subscribe_transient_local: true
+        trinary_costmap: true
+        enabled: true
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -226,8 +296,10 @@ global_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
-        inflation_radius: 0.20
+        # Bumped 2.0 -> 4.0 and trimmed 0.20 -> 0.12 so the planner is
+        # willing to draw paths closer to walls (mapping phase only).
+        cost_scaling_factor: 4.0
+        inflation_radius: 0.17
       always_send_full_costmap: true
 
 map_server:
@@ -251,7 +323,7 @@ planner_server:
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
-      use_astar: false
+      use_astar: true
       allow_unknown: true
 
 behavior_server:
@@ -273,9 +345,9 @@ behavior_server:
       plugin: "nav2_behaviors/Wait"
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"
-    local_frame: odom
+    local_frame: scout/odom
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: scout/base_link
     transform_timeout: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0

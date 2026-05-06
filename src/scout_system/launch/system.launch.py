@@ -95,12 +95,21 @@ def generate_launch_description():
                                              ["'", final_map_name, "' + '_hazards.json'"]
                                          )])
 
-    nav_params = PathJoinSubstitution([pkg_scout, 'config', 'scout_params.yaml'])
+    # Nav params: use _real.yaml variants when mode=real (namespaced robot frames)
+    nav_params = PathJoinSubstitution([
+        pkg_scout, 'config',
+        PythonExpression(
+            ["'scout_params_real.yaml' if '", mode, "' == 'real' else 'scout_params.yaml'"]
+        )
+    ])
     # Relaxed-tolerance variant used while SLAM is active (auto_mapper phase);
     # swaps back to scout_params.yaml for mission/nav tasks that need precision.
-    nav_params_mapping = PathJoinSubstitution(
-        [pkg_scout, 'config', 'scout_params_mapping.yaml']
-    )
+    nav_params_mapping = PathJoinSubstitution([
+        pkg_scout, 'config',
+        PythonExpression(
+            ["'scout_params_mapping_real.yaml' if '", mode, "' == 'real' else 'scout_params_mapping.yaml'"]
+        )
+    ])
     slam_params = PathJoinSubstitution([pkg_scout, 'config', 'slam_params.yaml'])
     explore_params = PathJoinSubstitution([pkg_scout, 'config', 'explore_params.yaml'])
     hazard_params = PathJoinSubstitution([pkg_scout, 'config', 'hazard_params.yaml'])
@@ -196,7 +205,14 @@ def generate_launch_description():
         executable='async_slam_toolbox_node',
         name='slam_toolbox',
         output='screen',
-        parameters=[slam_params, {'use_sim_time': False}],
+        parameters=[
+            slam_params,
+            {
+                'use_sim_time': False,
+                'odom_frame': 'scout/odom',
+                'base_frame': 'scout/base_footprint',
+            }
+        ],
         remappings=[('scan', 'scan_filtered')],
         condition=_cond(real_ex + [' and '] + needs_slam_ex),
     )
@@ -241,6 +257,9 @@ def generate_launch_description():
             # pure 'map' mode can shut down at the end if you want, but we
             # leave it up so Ctrl-C always belongs to you.
             'shutdown_on_complete': False,
+            'robot_namespace': PythonExpression(
+                ["'' if '", mode, "' == 'sim' else 'scout'"]
+            ),
         }],
         condition=_cond(needs_slam_ex + [' and ('] + scout_task_ex
                         + [" or ("] + map_task_ex + [' and '] + auto_map_ex + [')'] + [')']),
@@ -266,14 +285,19 @@ def generate_launch_description():
             'use_sim_time': PythonExpression(sim_ex),
             'params_file': hazard_params,
             'image_topic': PythonExpression(
-                ["'/scout/camera/image_raw' if '", mode, "' == 'sim' else '/scout/image_raw'"]
+                ["'/camera/image_raw' if '", mode, "' == 'sim' else '/scout/camera/image_raw'"]
             ),
             'camera_info_topic': PythonExpression(
-                ["'/scout/camera/camera_info' if '", mode, "' == 'sim' else '/scout/camera_info'"]
+                ["'/camera/camera_info' if '", mode, "' == 'sim' else '/scout/camera/camera_info'"]
             ),
-            'scan_topic': '/scout/scan',
-            'map_frame': 'scout/map',
-            'lidar_frame': 'scout/base_scan',
+            'scan_topic': PythonExpression(
+                ["'/scan' if '", mode, "' == 'sim' else '/scout/scan'"]
+            ),
+            'lidar_frame': 'base_scan',
+            'map_frame': 'map',
+            'robot_namespace': PythonExpression(
+                ["'' if '", mode, "' == 'sim' else 'scout'"]
+            ),
             # All other tuning (depth-jump, cluster width, bearing tol, etc.)
             # lives in hazard_detector.py defaults; override here if needed.
             # 3.1 m collapses the lidar's 3.5 m hardware limit and the
@@ -310,6 +334,10 @@ def generate_launch_description():
             'max_tracks_per_color': 1,
             'hazards_file': PathJoinSubstitution([hazards_file]),
             'republish_period_s': 2.0,
+            'map_frame': 'map',
+            'robot_namespace': PythonExpression(
+                ["'' if '", mode, "' == 'sim' else 'scout'"]
+            ),
         }],
         condition=_cond(needs_perception_ex + [' or '] + mission_task_ex),
     )
@@ -348,6 +376,10 @@ def generate_launch_description():
             'standoff_distance': 0.6,
             'hazards_wait_timeout': 3.0,
             'request_package_timeout': 15.0,
+            'map_frame': 'map',
+            'robot_namespace': PythonExpression(
+                ["'' if '", mode, "' == 'sim' else 'scout'"]
+            ),
         }],
         # In 'scout' task mode we launch it immediately; it will internally
         # wait for Nav2 + localization + the first confirmed hazard.

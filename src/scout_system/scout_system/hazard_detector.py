@@ -63,11 +63,12 @@ class HazardDetector(Node):
 
         # --------------- params --------------------------------------
         self.declare_parameter('params_file', '')
-        self.declare_parameter('image_topic', '/scout/camera/image_raw')
-        self.declare_parameter('camera_info_topic', '/scout/camera/camera_info')
-        self.declare_parameter('scan_topic', '/scout/scan')
-        self.declare_parameter('map_frame', 'scout/map')
-        self.declare_parameter('lidar_frame', 'scout/base_scan')
+        self.declare_parameter('image_topic', '/camera/image_raw')
+        self.declare_parameter('camera_info_topic', '/camera/camera_info')
+        self.declare_parameter('scan_topic', '/scan')
+        self.declare_parameter('map_frame', 'map')
+        self.declare_parameter('lidar_frame', 'base_scan')
+        self.declare_parameter('robot_namespace', '')
         self.declare_parameter('max_scan_age_s', 0.3)
         self.declare_parameter('cluster_depth_jump_m', 0.20)
         self.declare_parameter('cluster_max_width_m', 0.30)
@@ -78,8 +79,13 @@ class HazardDetector(Node):
         self.image_topic = self.get_parameter('image_topic').value
         self.info_topic = self.get_parameter('camera_info_topic').value
         self.scan_topic = self.get_parameter('scan_topic').value
+        self.robot_ns = self.get_parameter('robot_namespace').value
+        
         self.map_frame = self.get_parameter('map_frame').value
-        self.lidar_frame = self.get_parameter('lidar_frame').value
+        base_lidar_frame = self.get_parameter('lidar_frame').value
+        
+        self.lidar_frame = self._add_namespace(base_lidar_frame)
+        
         self.max_scan_age = float(self.get_parameter('max_scan_age_s').value)
         self.depth_jump = float(self.get_parameter('cluster_depth_jump_m').value)
         self.max_cluster_width = float(self.get_parameter('cluster_max_width_m').value)
@@ -130,6 +136,11 @@ class HazardDetector(Node):
         self.polygon = Polygon(verts)
 
     # ------------------------------------------------------------------ callbacks brebv
+    
+    def _add_namespace(self, frame_id: str) -> str:
+        if not self.robot_ns or frame_id.startswith('/'):
+            return frame_id
+        return f"{self.robot_ns}/{frame_id}"
    
     def _load_config(self) -> dict:
         path = self.get_parameter('params_file').value

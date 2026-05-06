@@ -17,12 +17,12 @@ amcl:
     alpha3: 0.2
     alpha4: 0.2
     alpha5: 0.2
-    base_frame_id: "scout/base_footprint"
+    base_frame_id: "base_footprint"
     beam_skip_distance: 0.5
     beam_skip_error_threshold: 0.9
     beam_skip_threshold: 0.3
     do_beamskip: false
-    global_frame_id: "scout/map"
+    global_frame_id: "map"
     lambda_short: 0.1
     laser_likelihood_max_dist: 2.0
     laser_max_range: 100.0
@@ -31,7 +31,7 @@ amcl:
     max_beams: 60
     max_particles: 2000
     min_particles: 500
-    odom_frame_id: "scout/odom"
+    odom_frame_id: "odom"
     pf_err: 0.05
     pf_z: 0.99
     recovery_alpha_fast: 0.0
@@ -48,8 +48,8 @@ amcl:
     z_max: 0.05
     z_rand: 0.5
     z_short: 0.05
-    scan_topic: /scout/scan
-    map_topic: /map
+    scan_topic: scan
+    map_topic: map
     set_initial_pose: false
     always_reset_initial_pose: false
     first_map_only: false
@@ -57,8 +57,8 @@ amcl:
 bt_navigator:
   ros__parameters:
     use_sim_time: false
-    global_frame: scout/map
-    robot_base_frame: scout/base_link
+    global_frame: map
+    robot_base_frame: base_link
     transform_tolerance: 0.5
     filter_duration: 0.3
     default_nav_to_pose_bt_xml: "$(find-pkg-share nav2_bt_navigator)/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml"
@@ -203,8 +203,8 @@ local_costmap:
       use_sim_time: false
       update_frequency: 20.0
       publish_frequency: 10.0
-      global_frame: scout/odom
-      robot_base_frame: scout/base_link
+      global_frame: odom
+      robot_base_frame: base_link
       rolling_window: true
       width: 3
       height: 3
@@ -225,7 +225,7 @@ local_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scout/scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -245,7 +245,7 @@ local_costmap:
         mark_threshold: 0
         observation_sources: scan
         scan:
-          topic: /scout/scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -264,8 +264,8 @@ global_costmap:
       use_sim_time: true
       update_frequency: 1.0
       publish_frequency: 1.0
-      global_frame: scout/map
-      robot_base_frame: scout/base_link
+      global_frame: map
+      robot_base_frame: base_link
       rolling_window: true
       width: 20
       height: 20
@@ -285,7 +285,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scout/scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -345,9 +345,9 @@ behavior_server:
       plugin: "nav2_behaviors/Wait"
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"
-    local_frame: scout/odom
-    global_frame: scout/map
-    robot_base_frame: scout/base_link
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_link
     transform_timeout: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
@@ -378,7 +378,7 @@ velocity_smoother:
     velocity_timeout: 1.0
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
-    odom_topic: "/scout/odom"
+    odom_topic: "odom"
     odom_duration: 0.1
     use_realtime_priority: false
     enable_stamped_cmd_vel: true
