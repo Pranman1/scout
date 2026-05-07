@@ -236,8 +236,7 @@ class AutoMapper(Node):
             # data[make_free] = 0
             data[make_wall] = 100  
 
-
-
+ 
         res = grid.info.resolution
         ox = grid.info.origin.position.x
         oy = grid.info.origin.position.y
@@ -377,10 +376,12 @@ class AutoMapper(Node):
     def _world_to_grid(self, wx, wy, info):
         mx = int((wx - info.origin.position.x) / info.resolution)
         my = int((wy - info.origin.position.y) / info.resolution)
+
         return mx, my
 
     def _grid_to_world(self, mx, my, info):
         wx = info.origin.position.x + (mx + 0.5) * info.resolution
+
         wy = info.origin.position.y + (my + 0.5) * info.resolution
         return wx, wy
 
@@ -388,7 +389,7 @@ class AutoMapper(Node):
         return self.polygon.contains(Point(x, y))
 
 
-# THE 2 action clinets belwo are boilerplate ufcnctions i found online and it seemesd to work for nav2 so modified for spin
+# THE 2 action clinets belwo are boilerplate ufcnctions i got from genai and it seemesd to work for nav2 so modified for spin
     def _send_nav_goal(self, x, y, yaw=0.0):
     
         if not self.nav_client.wait_for_server(timeout_sec=2.0):
