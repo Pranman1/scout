@@ -1,0 +1,10 @@
+   name: scout_ur7_bridge
+   topics:
+     /scout/package_request:
+       type: std_msgs/msg/String
+       from_domain: 23          # scout PC publishes here
+       to_domain: 26   # forward into UR7's domain
+     /scout/package_ready:
+       type: std_msgs/msg/Bool
+       from_domain: 26 # UR7 PC publishes here
+       to_domain: 23             # forward back to scout
