@@ -8,3 +8,4 @@
        type: std_msgs/msg/Bool
        from_domain: 26 # UR7 PC publishes here
        to_domain: 23             # forward back to scout
+      
