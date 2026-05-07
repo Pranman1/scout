@@ -18,7 +18,7 @@ from rclpy.qos import (DurabilityPolicy,QoSProfile,ReliabilityPolicy,)
 import tf2_ros
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Point as PointMsg, Twist
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import NavigateToPose, Spin
 from nav_msgs.msg import OccupancyGrid
 from shapely.geometry import Point, Polygon
 import shapely.vectorized
@@ -38,6 +38,7 @@ class State(Enum):
     COMPLETE = auto()     # map saved, /scout/mapping_complete latched True
     FAILED = auto()     
     RETURNING_HOME = auto()  # unrecoverable; you decide when to enter this
+    TURNING = auto() 
 
 
 @dataclass
@@ -93,6 +94,9 @@ class AutoMapper(Node):
         self.nav_started_t = 0.0
         self.blacklist = set()
         self.consecutive_empty = 0
+        self.spin_in_progress = False
+        self.spin_succeeded = False
+        self.spin_started_t = 0.0
 
         # ---------- ROS plumbing 
         map_qos = QoSProfile(
@@ -124,6 +128,9 @@ class AutoMapper(Node):
 
         self.nav_client = ActionClient(
             self, NavigateToPose, 'navigate_to_pose'
+        )
+        self.spin_client = ActionClient(
+            self, Spin, 'spin'
         )
         self.create_timer(self.tick_period, self._tick)
         self.create_timer(2.0, self._publish_polygon_marker)
@@ -337,11 +344,18 @@ class AutoMapper(Node):
                 self.blacklist.add((self.current_target.x, self.current_target.y))
                 self.state = State.PICK_TARGET
             if not self.nav_in_progress:
-                self.state = State.PICK_TARGET
+                self.state = State.TURNING
         elif self.state == State.RETURNING_HOME:
             if not self.nav_in_progress:
                 self.state = State.COMPLETE
                 self._publish_complete()
+
+        elif self.state == State.TURNING:
+            if not self.spin_in_progress and not self.spin_succeeded:
+                self.state = State.PICK_TARGET
+            if not self.spin_in_progress:
+                self.state = State.PICK_TARGET
+
         elif self.state == State.COMPLETE:
             if self.shutdown_on_complete:
                 rclpy.shutdown()
@@ -373,6 +387,8 @@ class AutoMapper(Node):
     def _in_polygon(self, x, y):
         return self.polygon.contains(Point(x, y))
 
+
+# THE 2 action clinets belwo are boilerplate ufcnctions i found online and it seemesd to work for nav2 so modified for spin
     def _send_nav_goal(self, x, y, yaw=0.0):
     
         if not self.nav_client.wait_for_server(timeout_sec=2.0):
@@ -411,6 +427,41 @@ class AutoMapper(Node):
         self.nav_succeeded = (status == GoalStatus.STATUS_SUCCEEDED)
         if not self.nav_succeeded:
             self.get_logger().warn(f'Nav goal ended with status={status}')
+
+
+    def _send_spin_goal(self, yaw):
+        if not self.spin_client.wait_for_server(timeout_sec=2.0):
+            self.get_logger().warn('Spin action server not ready.')
+            return False
+
+        goal = Spin.Goal()
+        goal.target_yaw = yaw
+        self.spin_in_progress = True
+        self.spin_succeeded = False
+        self.spin_started_t = time.time()
+
+        send_future = self.spin_client.send_goal_async(goal)
+        send_future.add_done_callback(self._on_spin_response)
+        return True
+
+    def _on_spin_response(self, future):
+        handle = future.result()
+        if not handle.accepted:
+            self.get_logger().warn('Spin rejected the goal.')
+            self.spin_in_progress = False
+            self.spin_succeeded = False
+            return
+        result_future = handle.get_result_async()
+        result_future.add_done_callback(self._on_spin_result)
+
+    def _on_spin_result(self, future):
+        result = future.result()
+        status = result.status
+        self.spin_in_progress = False
+        self.spin_succeeded = (status == GoalStatus.STATUS_SUCCEEDED)
+        if not self.spin_succeeded:
+            self.get_logger().warn(f'Spin goal ended with status={status}')
+
             
 
 
