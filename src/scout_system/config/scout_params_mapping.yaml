@@ -113,7 +113,7 @@ controller_server:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
       model_dt: 0.05
-      batch_size: 1500
+      batch_size: 2000
       vx_std: 0.2
       vy_std: 0.0
       wz_std: 0.4
@@ -126,8 +126,8 @@ controller_server:
       iteration_count: 1
       prune_distance: 1.7
       transform_tolerance: 0.1
-      temperature: 0.3
-      gamma: 0.015
+      temperature: 0.15
+      gamma: 0.05
       motion_model: "DiffDrive"
       visualize: false
       regenerate_noises: false
@@ -155,7 +155,7 @@ controller_server:
         near_goal_distance: 0.5
         # MPPI's internal inflation; trimmed 0.55 -> 0.30 so MPPI doesn't
         # double-penalize cells the costmap already inflated.
-        inflation_radius: 0.20
+        inflation_radius: 0.15
         cost_scaling_factor: 10.0
       GoalCritic:
         enabled: true
@@ -216,10 +216,7 @@ local_costmap:
         # Bumped from 2.5 -> 4.0: steeper falloff = less effective bubble
         # at any given distance from a wall.
         cost_scaling_factor: 4.0
-        # Bumped 0.20 -> 0.40: makes LETHAL_INSCRIBED band cover the robot's
-        # 0.35 footprint, so MPPI center-point checks see "blocked" before
-        # the robot edge can touch anything.
-        inflation_radius: 0.40
+        inflation_radius: 0.15
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -299,9 +296,8 @@ global_costmap:
           observation_persistence: 5.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Bumped 0.20 -> 0.40 to cover the 0.35 robot footprint.
         cost_scaling_factor: 4.0
-        inflation_radius: 0.40
+        inflation_radius: 0.15
       always_send_full_costmap: true
 
 map_server:
