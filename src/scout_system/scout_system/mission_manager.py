@@ -175,7 +175,7 @@ class MissionManager(Node):
 
         elif self.state == State.NAVIGATING_TO_HAZARD:
             if self.goal_sent == False:
-                self.adjust_nav_params(0.2,3.14)
+                self.adjust_nav_params(0.35,3.14)
                 self.goal_sent = True
                 pose = PoseStamped()
                 pose.header.frame_id = 'map'

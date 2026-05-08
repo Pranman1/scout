@@ -117,7 +117,7 @@ controller_server:
       vx_std: 0.2
       vy_std: 0.0
       wz_std: 0.4
-      vx_max: 0.26             # TB3 max forward speed, was 0.20
+      vx_max: 0.15             # safety-over-speed: capped from 0.26
       vx_min: -0.10            # allow reversing out of corners
       wz_max: 1.0
       ax_max: 3.0
@@ -147,11 +147,11 @@ controller_server:
         # Cut from 1.5 -> 0.8: MPPI cares less about staying away from
         # non-immediate obstacles (still respects critical_weight near
         # actual collision).
-        repulsion_weight: 0.8
+        repulsion_weight: 1.5
         critical_weight: 20.0          # keep -- this is the real-collision penalty
         consider_footprint: false
         collision_cost: 10000.0
-        collision_margin_distance: 0.10
+        collision_margin_distance: 0.20
         near_goal_distance: 0.5
         # MPPI's internal inflation; trimmed 0.55 -> 0.30 so MPPI doesn't
         # double-penalize cells the costmap already inflated.
@@ -216,10 +216,10 @@ local_costmap:
         # Bumped from 2.5 -> 4.0: steeper falloff = less effective bubble
         # at any given distance from a wall.
         cost_scaling_factor: 4.0
-        # Cut from 0.25 -> 0.15: smaller "stay back" zone. Combined with
-        # robot_radius (0.22), robot will keep ~0.37m clearance instead
-        # of ~0.47m. Mapping phase only -- mission phase keeps tighter.
-        inflation_radius: 0.20
+        # Bumped 0.20 -> 0.40: makes LETHAL_INSCRIBED band cover the robot's
+        # 0.35 footprint, so MPPI center-point checks see "blocked" before
+        # the robot edge can touch anything.
+        inflation_radius: 0.40
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -232,8 +232,9 @@ local_costmap:
           data_type: "LaserScan"
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 2.5
+          obstacle_max_range: 3.0
           obstacle_min_range: 0.0
+          observation_persistence: 5.0
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: true
@@ -252,8 +253,9 @@ local_costmap:
           data_type: "LaserScan"
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 2.5
+          obstacle_max_range: 3.0
           obstacle_min_range: 0.0
+          observation_persistence: 5.0
       static_layer:
         map_subscribe_transient_local: true
       always_send_full_costmap: true
@@ -292,14 +294,14 @@ global_costmap:
           data_type: "LaserScan"
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 2.5
+          obstacle_max_range: 3.0
           obstacle_min_range: 0.0
+          observation_persistence: 5.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Bumped 2.0 -> 4.0 and trimmed 0.20 -> 0.12 so the planner is
-        # willing to draw paths closer to walls (mapping phase only).
+        # Bumped 0.20 -> 0.40 to cover the 0.35 robot footprint.
         cost_scaling_factor: 4.0
-        inflation_radius: 0.20
+        inflation_radius: 0.40
       always_send_full_costmap: true
 
 map_server:
