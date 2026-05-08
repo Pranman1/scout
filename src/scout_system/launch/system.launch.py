@@ -276,12 +276,12 @@ def generate_launch_description():
             # lives in hazard_detector.py defaults; override here if needed.
             # 3.1 m collapses the lidar's 3.5 m hardware limit and the
             # 0.4 m wall-ghost trust margin into a single trust threshold.
-            'max_range_m': 3.1,
+            'max_range_m': 3.2,
             # Require >= 2 lidar rays per cluster -- single-ray clusters
             # are usually noise. Cones beyond ~3 m subtend 1 ray only,
             # so this also caps effective range; lower to 1 if you need
             # those long-range hits and accept more noise.
-            'cluster_min_rays': 3,
+            'cluster_min_rays': 2,
             # Cone is 14 cm wide. 0.22 m gives ~5 cm slack for ray noise
             # while still cleanly rejecting the 0.5 m pillar.
             'cluster_max_width_m': 0.22,
