@@ -87,9 +87,21 @@ class MissionManager(Node):
         self.create_subscription(Bool, '/scout/mapping_complete', self.mapping_complete_cb, LATCHED_QOS)
         self.create_subscription(Bool, '/scout/package_ready', self.package_ready_cb, 10)
 
-
+      
         self.status_pub = self.create_publisher(MissionStatus, '/mission_status', 10)
         self.package_request_pub = self.create_publisher(String, '/scout/package_request', 10)
+
+        self.off_pub = self.create_publisher(Bool, 'music/off_request', 10)
+        self.start_pub = self.create_publisher(Bool, 'music/start_request', 10)
+        self.block_pub = self.create_publisher(Bool, 'music/block_request', 10)
+        self.scouting_pub = self.create_publisher(Bool, 'music/scouting_request', 10)
+        self.navigating_pub = self.create_publisher(Bool, 'music/navigating_request', 10)
+        self.hazard_pub = self.create_publisher(Bool, 'music/hazard_request', 10)
+        self.returning_pub = self.create_publisher(Bool, 'music/returning_request', 10)
+        self.completed_pub = self.create_publisher(Bool, 'music/completed_request', 10)
+        self.aborted_pub = self.create_publisher(Bool, 'music/aborted_request', 10)
+
+
 
     # ------------------------------------------------------------------ helpers
 
@@ -151,8 +163,10 @@ class MissionManager(Node):
 
         if self.state == State.STANDBY:
             self.state = State.MAPPING
+            self.start_pub.publish(Bool(data=True))
 
         elif self.state == State.MAPPING:
+            self.scouting_pub.publish(Bool(data=True))
             if self.mapping_complete:
                 self.hazards = self.hazard_dump
                 self.state = State.AT_ARM
@@ -160,6 +174,7 @@ class MissionManager(Node):
                 return
 
         elif self.state == State.AT_ARM:
+            self.block_pub.publish(Bool(data=True))
             if len(self.hazards) == 0:
                 self.state = State.COMPLETE
                 return
@@ -170,10 +185,12 @@ class MissionManager(Node):
 
         elif self.state == State.READY_TO_NAVIGATE:
             if self.carrying_package:
+                self.block_pub.publish(Bool(data=True))
                 self.state = State.NAVIGATING_TO_HAZARD
                 self.current_hazard = self.hazards.pop(0)
 
         elif self.state == State.NAVIGATING_TO_HAZARD:
+            self.navigating_pub.publish(Bool(data=True))
             if self.goal_sent == False:
                 self.adjust_nav_params(0.2,3.14)
                 self.goal_sent = True
@@ -188,6 +205,7 @@ class MissionManager(Node):
                 res = self.navigator.getResult()
                 if res == TaskResult.SUCCEEDED:
                     self.state = State.AT_HAZARD
+                    self.hazard_pub.publish(Bool(data=True))
                 else:
                     self.nav_buffers -= 1
                     if self.nav_buffers == 0:
@@ -209,6 +227,7 @@ class MissionManager(Node):
             self.tocker += 1
 
         elif self.state == State.RETURNING_HOME:
+            self.returning_pub.publish(Bool(data=True))
             if self.goal_sent == False:
                 self.goal_sent = True
                 pose = PoseStamped()
@@ -234,9 +253,11 @@ class MissionManager(Node):
 
             return
         elif self.state == State.COMPLETE:
+            self.completed_pub.publish(Bool(data=True))
             self.get_logger().info("Mission completed")
             return
         elif self.state == State.ABORTED:
+            self.aborted_pub.publish(Bool(data=True))
             self.get_logger().error("Mission aborted")
             return
         else:
